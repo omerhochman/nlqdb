@@ -13,7 +13,8 @@ Everything else — engine choice (Postgres / Mongo / Redis / DuckDB / pgvector 
 
 Pre-alpha. Planning phase.
 
-See [PLAN.md](./PLAN.md) for the detailed phased roadmap, architecture, alternative-tech evaluation, and the honest cost/pricing discussion.
+- [PLAN.md](./PLAN.md) — phased roadmap, architecture, alternative-tech evaluation, cost/pricing discussion.
+- [PERSONAS.md](./PERSONAS.md) — who we're building for (and who we're not), prioritized use cases.
 
 ## Surfaces (planned, Phase 1)
 
