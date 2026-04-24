@@ -30,141 +30,80 @@ The product must feel **simpler than Vercel**. Vercel still makes you pick a fra
 
 ## Phase 1 — The Surface (Onboarding, API, CLI, MCP)
 
-**Goal of Phase 1:** ship the experience before the engine. The backend in Phase 1 is a thin shim — one shared Postgres + an LLM. We are buying the right to iterate on UX with real users.
-
-**Scope:** just two actions end-to-end across four surfaces.
+**Goal:** ship the experience before the engine. The Phase 1 backend is a
+thin shim — one shared Postgres + an LLM. We buy the right to iterate on
+UX with real users. Just two actions end-to-end:
 
 ```
-create_database(name)           -> returns a db handle + API key
-query(db, "natural language")   -> returns rows + a natural-language answer + a trace
+create_database(name)           -> db handle + API key
+query(db, "natural language")   -> rows + NL answer + trace
 ```
 
-Nothing else exists yet. No users table, no teams, no billing UI (Stripe checkout link only), no dashboards beyond the one we need.
+Surface detail (onboarding, chat, API, CLI, MCP) lives in
+[`DESIGN.md` §3, §14](./DESIGN.md). This section covers only what's
+unique to Phase 1 rationale.
 
-### 1.1 Onboarding UX — the 60-second path
+### 1.1 Onboarding — anti-patterns we refuse
 
-The entire onboarding is a single page. No wizard. No email verification wall before first query.
+Full flow in `DESIGN §0.1, §3.1, §14.1`. Hard rules for Phase 1:
+no wizard, no email-verification wall, no "choose your plan" before
+first query, no auto-charge without a second explicit confirmation, no
+modals interrupting the chat, no "getting started" video.
 
-1. **Landing** — one input box: "Name your database." Example placeholder cycles: `orders`, `users`, `telemetry`, `coffee-shop`.
-2. **Enter key** — the DB is created instantly. We do *not* redirect. The input box morphs into a chat. Above it, a subtle line: `orders.nlqdb.com · ready`.
-3. **First query prompt** — ghost text suggests: `try "add a customer named Alice who ordered 2 lattes"`. The user types anything. We answer.
-4. **Sign-in happens after value.** After the first successful query, a slim bar appears: "Save this DB — sign in with GitHub / Google / magic link." If they leave, the DB survives 72h under an anonymous token stored in localStorage.
-5. **On sign-in**, we reveal (progressively, not all at once):
-   - API key + one-line curl snippet
-   - CLI install command (one line, copy button)
-   - MCP endpoint URL
-   - A "Connection details" disclosure that reveals the *actual* underlying connection string (Postgres URL in Phase 1). Clicking it is a conscious act.
+### 1.2 Chat principles
 
-**Explicit anti-patterns we refuse:**
-- Multi-step wizards.
-- "Choose your plan" before first query.
-- Email verification before first query.
-- Dark patterns around free trial expiry (no auto-charge without a second explicit confirmation — see §5).
-- Modals that interrupt the chat.
-- A "getting started" video. If we need one, we failed.
+Full spec in `DESIGN §3.2, §14.2`. Non-negotiables for Phase 1: every
+response has answer / data / trace parts (trace always present, collapsed
+by default); streaming tokens + streaming rows; ambiguity surfaces as
+inline clickable chips, not another turn; destructive ops show a diff
+and require second Enter; history is permalinkable; multi-DB in one
+window; keyboard-first.
 
-### 1.2 The chat interface — design principles
+### 1.3 API shape
 
-The chat is the product. It must be better than a generic LLM wrapper.
-
-- **Every response has three parts**, collapsible: *answer* (prose), *data* (table/JSON, if any), *trace* (the SQL/Mongo query we actually ran + which engine + latency). Trace is collapsed by default but always present. This builds trust over time and gives power users what they want.
-- **Streaming.** Tokens stream. Rows stream when they arrive. Never a dead 3-second spinner.
-- **Ambiguity is surfaced, not guessed.** If "top customers" could mean by revenue or by count, we ask inline with clickable chips — not another chat turn.
-- **Re-run & edit.** Every query is editable in place; re-running updates in place.
-- **Undo.** Destructive actions ("delete all users from Germany") show a diff preview first and require a second Enter to execute. This is a hard rule, not a setting.
-- **History is a first-class object.** Left rail lists queries; each one is permalinkable and shareable (with the data redacted by default — sharing data requires an explicit click).
-- **Multi-DB in one window.** Tab-like switcher at the top. `@orders` prefix in the prompt to route one-off queries.
-- **Keyboard-first.** `Cmd+K` command palette for everything. `↑` to edit the last query. `Cmd+Enter` to run. `Cmd+/` to toggle trace.
-
-### 1.3 The API — the Vercel-simpler target
-
-```http
-POST https://api.nlqdb.com/v1/databases
-Authorization: Bearer <key>
-{ "name": "orders" }
-
--> 201 { "id": "db_...", "name": "orders", "endpoint": "https://api.nlqdb.com/v1/db/db_..." }
-```
-
-```http
-POST https://api.nlqdb.com/v1/db/{id}/query
-Authorization: Bearer <key>
-{ "q": "how many orders last week, by country" }
-
--> 200 {
-  "answer": "Germany: 412, US: 387, ...",
-  "data":   [ {"country":"DE","count":412}, ... ],
-  "trace":  { "engine": "postgres", "sql": "SELECT ...", "ms": 83 }
-}
-```
-
-That's the entire public surface in Phase 1. Two endpoints. **No SDK is required** — `fetch` is the SDK. We ship SDKs (TS, Python, Go) because people expect them, but the API is small enough to be memorized.
-
-Design rules for the API:
-
-- **Stable idempotency.** `Idempotency-Key` header on every mutating call. We mean it.
-- **Errors are a payload, never just a status.** `{ "error": { "code": "AMBIGUOUS_QUERY", "suggestions": [...], "trace_id": "..." } }`
-- **Streaming via SSE** on `/query` when `Accept: text/event-stream`.
-- **No versioning drama.** `/v1` forever; additive-only. We version the *interpretation* (query model ids) separately.
-- **Server-sent trace.** Same trace the UI shows is returned in the API response — no hidden info asymmetry between surfaces.
+Full spec in `DESIGN §14.6`. Phase 1 rules: `Idempotency-Key` on every
+mutation; errors are structured payloads with `code`, `suggestions`,
+`trace_id`; SSE on `/query` when `Accept: text/event-stream`; `/v1`
+forever, additive-only; the trace returned in the API response is
+identical to what the UI shows (no info asymmetry).
 
 ### 1.4 CLI
 
-Install: `curl -fsSL https://nlqdb.com/install | sh` (a single static binary — Go or Rust; see alternatives §4).
-
-```
-nlq login
-nlq db create orders
-nlq query orders "how many signups today"
-nlq chat orders            # interactive REPL, streams like the web UI
-nlq connection orders      # prints the underlying connection string (explicit escape hatch)
-```
-
-CLI UX rules:
-- `nlq` with no args drops into an interactive picker (like `gh`).
-- Output is human-formatted by default; `--json` for scripts. No surprise TTY detection breakage — explicit flag wins.
-- Every command takes a DB positional. No hidden "current database" state unless the user runs `nlq use orders`, which writes to `~/.config/nlqdb/config.toml` and is visible.
-- `nlq query ... --explain` shows the trace inline.
+Full spec in `DESIGN §3.3, §14.3`. Single static Go binary, subcommand-
+first, `--json` for scripts (no TTY detection), `nlq use <db>` writes a
+visible `~/.config/nlqdb/config.toml` — no hidden "current DB" state.
 
 ### 1.5 MCP server
 
-We ship an MCP server from day one because LLM agents *are* the second user.
-
-Tools exposed:
-- `nlqdb_query(database, q)` → `{ answer, data, trace }` — creates the DB on
-  first reference per [`DESIGN.md` §0.1](./DESIGN.md), so no public
-  `nlqdb_create_database` tool.
-- `nlqdb_list_databases()` → list
-- `nlqdb_describe(database)` → inferred schema in NL
-
-The MCP server is the same code path as the HTTP API — not a parallel implementation. It's a thin adapter with **no database driver in its dependency tree** (enforced by CI, per [`DESIGN.md` §4.4](./DESIGN.md)).
-
-**Auth** is a first-class part of the MCP surface, not an afterthought. Full spec in [`DESIGN.md` §3.4, §4.3, §4.4](./DESIGN.md). Summary:
-
-- Install path: `nlq mcp install <host>` — one command that (a) runs the CLI device-code sign-in if needed, (b) mints a host-scoped `sk_mcp_<host>_<device>_…` key, (c) patches the host's config file, (d) runs a self-check.
-- Per-host, per-device isolation: each host gets its own key and its own DB namespace by default — agents do **not** share credentials.
-- `NLQDB_API_KEY` env var remains the escape hatch for CI / air-gapped boxes.
-
-Install: `nlq mcp install <host>` is the default; `npx -y @nlqdb/mcp` remains for users who want to wire things manually; website one-click install buttons handle the sign-in in-browser.
+Full spec in `DESIGN §3.4, §14.4`. Tools: `nlqdb_query`,
+`nlqdb_list_databases`, `nlqdb_describe`. Same code path as the HTTP
+API; zero DB drivers in `@nlqdb/mcp`'s lockfile (CI-enforced).
+`nlq mcp install` (no-arg auto-detect) is the default install; explicit
+`<host>` and `NLQDB_API_KEY` env var remain as overrides. Per-host,
+per-device key scoping — agents never share credentials.
 
 ### 1.6 Phase 1 backend (the shim)
 
-Keep it embarrassingly simple. This is not the product yet.
-
-- **One shared Postgres** (managed: Neon or Supabase free tier). Every user DB is a Postgres schema. No per-user VMs.
-- **LLM layer:** Claude (primary) with a structured tool-use loop. The loop: parse intent → resolve schema context from pgvector embeddings of table/column names → emit SQL → execute → summarize. See §3 for the robust version.
-- **Schema inference on write.** First insert creates columns. Types are inferred and *widened* over time, never narrowed without an explicit migration.
-- **Auth:** **Better Auth** (TypeScript, OSS, MIT). Full rationale in [`DESIGN.md` §4](./DESIGN.md); short version — no per-MAU pricing cliff, OSS-to-OSS alignment, TypeScript types shared with our Drizzle schema. This revises the Phase-0 draft that named Clerk/WorkOS. Methods: magic link, passkey, GitHub OAuth, Google OAuth. Not Auth0 (pricing cliff). Not roll-our-own (auth is not a wheel we reinvent — we use the library, we own the UI). Device-code flow for the CLI and MCP install is first-class, not a bolt-on — see [`DESIGN.md` §4.3](./DESIGN.md).
-- **Rate limits:** per-API-key token bucket in Redis (Upstash — free tier, HTTP API, no persistent connections).
-- **Observability:** trace IDs propagate across UI → API → LLM → DB. One OTEL collector, ship to Grafana Cloud free tier in Phase 1.
+- **One shared Postgres** (Neon free tier). Every user DB is a schema.
+- **LLM layer:** Claude primary; structured tool-use loop — intent
+  classify → pgvector schema retrieval → SQL emit → execute → summarize.
+  See §3 for the full loop.
+- **Schema inference on write.** First insert creates columns. Types are
+  widened only, never narrowed without explicit migration.
+- **Auth:** **Better Auth** (rationale in `DESIGN §4.1`). Magic link +
+  passkey + GitHub + Google. Device-code flow for CLI and MCP is
+  first-class, not a bolt-on.
+- **Rate limits:** per-API-key token bucket in Upstash Redis.
+- **Observability:** trace IDs propagate UI → API → LLM → DB; OTEL to
+  Grafana Cloud free.
 
 ### 1.7 Phase 1 exit criteria
 
 - Median first-query latency < 2s, p95 < 5s.
-- 60-second onboarding validated with 20 unstructured user tests.
+- 60-second onboarding validated with 20 user tests.
 - Five paying customers who say "I'd be sad if this went away."
-- MCP server installed in ≥ 3 distinct client apps in the wild.
-- Zero support tickets about "how do I create a table" — if we get any, the onboarding has failed.
+- MCP server installed in ≥ 3 distinct client apps.
+- Zero support tickets about "how do I create a table."
 
 ---
 
@@ -328,11 +267,12 @@ We lean toward tools with **real APIs, generous free tiers, and no mandatory UI 
 
 | Candidate | Verdict |
 |---|---|
-| **Clerk** | ✅ Phase 1 — best DX, real API |
-| **WorkOS AuthKit** | ✅ alt, better for enterprise SSO later |
+| **Better Auth** (TS, OSS, MIT) | ✅ chosen — see `DESIGN §4.1` |
+| **Clerk** | ❌ per-MAU pricing cliff, user-shape lock-in |
+| **WorkOS AuthKit** | ⚠️ keep for enterprise SSO later |
 | **Supabase Auth** | ❌ pulls in whole Supabase |
 | **Auth0** | ❌ pricing cliff |
-| **Roll our own** | ❌ not now |
+| **Roll our own** | ❌ not the wheel we reinvent |
 
 ### Payments
 
@@ -506,16 +446,15 @@ What we should **not** reinvent:
 
 ---
 
-## 9. Immediate next steps (to kick off Phase 1)
+## 9. Immediate next steps
 
-1. Wire DNS for `nlqdb.com` (canonical) and `nlqdb.ai` (apex-redirect → `.com`); see [`DESIGN.md` §2.1](./DESIGN.md). Parking page with the goal-first input as a teaser (live within a week).
-2. Stand up the Neon + Fly + Clerk + Stripe scaffolding. Nothing custom yet.
-3. Build the chat UI as a standalone page. No routing, no dashboard. One page that can create a DB and send a query.
-4. Wire Claude + pgvector schema retrieval behind it.
-5. Ship the CLI (Go, single binary) with two commands: `create` and `query`.
-6. Ship the MCP server (TypeScript, npm).
-7. 20 user tests, iterate onboarding until the 60-second target is hit reliably.
-8. Pick the first 5 design partners deliberately (one hobbyist, one startup backend eng, one data analyst, one agent-builder, one solo founder).
+See [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) for the phased, actionable
+plan. High level: Phase 0 stands up the Cloudflare stack + Better Auth +
+Neon + LLM router; Phase 1 ships the marketing site + chat + anonymous
+mode + `<nlq-data>` v0 + "Copy starter HTML"; Phase 2 ships CLI + MCP +
+CSV upload + Stripe live. Five design partners recruited deliberately
+(one per persona in [`PERSONAS.md`](./PERSONAS.md)) — Free Pro for 12
+months in exchange for 2 calls/month.
 
 ---
 
