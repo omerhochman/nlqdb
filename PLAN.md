@@ -46,7 +46,7 @@ Nothing else exists yet. No users table, no teams, no billing UI (Stripe checkou
 The entire onboarding is a single page. No wizard. No email verification wall before first query.
 
 1. **Landing** — one input box: "Name your database." Example placeholder cycles: `orders`, `users`, `telemetry`, `coffee-shop`.
-2. **Enter key** — the DB is created instantly. We do *not* redirect. The input box morphs into a chat. Above it, a subtle line: `orders.nlqdb.sh · ready`.
+2. **Enter key** — the DB is created instantly. We do *not* redirect. The input box morphs into a chat. Above it, a subtle line: `orders.nlqdb.com · ready`.
 3. **First query prompt** — ghost text suggests: `try "add a customer named Alice who ordered 2 lattes"`. The user types anything. We answer.
 4. **Sign-in happens after value.** After the first successful query, a slim bar appears: "Save this DB — sign in with GitHub / Google / magic link." If they leave, the DB survives 72h under an anonymous token stored in localStorage.
 5. **On sign-in**, we reveal (progressively, not all at once):
@@ -79,15 +79,15 @@ The chat is the product. It must be better than a generic LLM wrapper.
 ### 1.3 The API — the Vercel-simpler target
 
 ```http
-POST https://api.nlqdb.sh/v1/databases
+POST https://api.nlqdb.com/v1/databases
 Authorization: Bearer <key>
 { "name": "orders" }
 
--> 201 { "id": "db_...", "name": "orders", "endpoint": "https://api.nlqdb.sh/v1/db/db_..." }
+-> 201 { "id": "db_...", "name": "orders", "endpoint": "https://api.nlqdb.com/v1/db/db_..." }
 ```
 
 ```http
-POST https://api.nlqdb.sh/v1/db/{id}/query
+POST https://api.nlqdb.com/v1/db/{id}/query
 Authorization: Bearer <key>
 { "q": "how many orders last week, by country" }
 
@@ -110,7 +110,7 @@ Design rules for the API:
 
 ### 1.4 CLI
 
-Install: `curl -fsSL https://nlqdb.sh/install | sh` (a single static binary — Go or Rust; see alternatives §4).
+Install: `curl -fsSL https://nlqdb.com/install | sh` (a single static binary — Go or Rust; see alternatives §4).
 
 ```
 nlq login
@@ -500,7 +500,7 @@ What we should **not** reinvent:
 
 ## 9. Immediate next steps (to kick off Phase 1)
 
-1. Register `nlqdb.sh`. Parking page with the single "name your database" input as a teaser (live within a week).
+1. Wire DNS for `nlqdb.com` (canonical) and `nlqdb.ai` (apex-redirect → `.com`); see [`DESIGN.md` §2.1](./DESIGN.md). Parking page with the goal-first input as a teaser (live within a week).
 2. Stand up the Neon + Fly + Clerk + Stripe scaffolding. Nothing custom yet.
 3. Build the chat UI as a standalone page. No routing, no dashboard. One page that can create a DB and send a query.
 4. Wire Claude + pgvector schema retrieval behind it.

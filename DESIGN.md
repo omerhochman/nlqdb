@@ -179,11 +179,51 @@ all hit the same edge router. There is one core engine. There are no parallel
 implementations. (See [`PLAN.md` §1.5](./PLAN.md) — MCP is a thin adapter, not
 its own backend.)
 
+### 2.1 Domains
+
+We own **two** domains: `nlqdb.com` and `nlqdb.ai`. We do **not** own `nlqdb.sh`.
+To avoid SEO dilution and the "which one is real" confusion that kills brand
+recall, we pick **one canonical**: everything lives on **`nlqdb.com`**.
+
+**Hostname plan** (one row per public hostname, all under `.com`):
+
+| Hostname | Purpose | Notes |
+|---|---|---|
+| `nlqdb.com` | Marketing site (Astro static, §3.1) | Primary entry. Carries all SEO weight. |
+| `app.nlqdb.com` | Authenticated platform (§3.2) | Behind sign-in. No SEO concern. |
+| `api.nlqdb.com` | HTTP API + MCP transport | Versioned `/v1/...`. |
+| `elements.nlqdb.com` | CDN for `<nlq-data>` JS (§3.5) | Long-cache; served from R2 + Cloudflare. |
+| `docs.nlqdb.com` | Documentation | Same Astro project, separate output. |
+
+**`nlqdb.ai` strategy** — held as a brand asset, not split traffic:
+- **Apex `nlqdb.ai`** — 301-redirect to `https://nlqdb.com/` (preserves any
+  inbound links / typed traffic; consolidates ranking signal).
+- **Optional `chat.nlqdb.ai`** — a memorable shortcut for the chat product
+  (also 301 to `app.nlqdb.com/chat`). No SEO impact because it's behind auth.
+  We use it in talks, t-shirts, social bios — places where short-and-memorable
+  beats canonical.
+- We secure `@nlqdb` on every relevant platform (GitHub org, npm scope,
+  X, LinkedIn, Discord, Bluesky) so the brand-name story is consistent
+  regardless of which TLD the user heard.
+
+**Why `.com` not `.ai` as canonical:**
+- `.com` is universally typeable, parses correctly in every email client,
+  and avoids the "is .ai a TLD?" cognitive blip from non-tech users (P3
+  Priya, P5 Aarav).
+- `.ai` carries renewal-cost risk (~$60–80/yr vs `.com` ~$10–15/yr) and
+  has historically had registry instability — bad fit for the `Domain`
+  line in §7 we want to keep tiny and predictable.
+- Holding `.ai` defensively prevents a competitor from squatting on the
+  obvious AI-themed shortcut.
+
+**Total fixed annual domain cost** (the only fixed cost we cannot avoid):
+~$15 + ~$70 = **~$85/yr ≈ $7/mo amortized**. See §7.
+
 ---
 
 ## 3. Surfaces
 
-### 3.1 Marketing site — `nlqdb.sh`
+### 3.1 Marketing site — `nlqdb.com`
 
 The first thing the world sees. Built as a static-first **Astro** site (zero JS by default;
 hydrate islands only when needed), so Lighthouse stays at 100/100/100/100 and the page
@@ -244,7 +284,7 @@ We use React/Svelte/Vue islands (`client:visible`) for the interactive demo only
 
 **Hosting**: Cloudflare Pages (free tier: unlimited static requests, 500 builds/mo).
 
-### 3.2 Platform web app — `app.nlqdb.sh`
+### 3.2 Platform web app — `app.nlqdb.com`
 
 The signed-in surface. Same Astro project, different routes; React islands for
 the chat and dashboard.
@@ -275,7 +315,7 @@ need npm distribution as the primary channel).
   it's not a common Unix command).
 - The **npm packages** are scoped: `@nlqdb/cli`, `@nlqdb/mcp`, `@nlqdb/sdk`,
   `@nlqdb/elements` (the web component).
-- Install command: `curl -fsSL https://nlqdb.sh/install | sh` installs the Go
+- Install command: `curl -fsSL https://nlqdb.com/install | sh` installs the Go
   binary to `~/.local/bin/nlq`. Homebrew tap: `brew install nlqdb/tap/nlq`.
   npm path (for Node-native users): `npm i -g @nlqdb/cli` exposes the same
   `nlq` command (a small Node shim that downloads the binary on first run).
@@ -334,10 +374,10 @@ buttons on the website for Claude Desktop, Cursor, Zed, Windsurf, VS Code.
 ### 3.5 The embeddable HTML element — `<nlq-data>`
 
 **This is the bet.** A web component (custom element) that any developer can drop
-into static HTML. Distributed as `@nlqdb/elements` (one CDN URL: `https://elements.nlqdb.sh/v1.js`).
+into static HTML. Distributed as `@nlqdb/elements` (one CDN URL: `https://elements.nlqdb.com/v1.js`).
 
 ```html
-<script src="https://elements.nlqdb.sh/v1.js" type="module"></script>
+<script src="https://elements.nlqdb.com/v1.js" type="module"></script>
 
 <!-- Goal-first form (default; per §0.1). DB is auto-created from the goal
      on the first call and remembered server-side per api-key. -->
@@ -580,7 +620,7 @@ spending $0/month until we have paying customers.
 | Web analytics | **Plausible** (self-hosted) | OSS, free | GDPR-exempt, no cookie banner |
 | Backend traces | **Grafana Cloud** free | 10k metrics, 50GB logs | OTEL standard, swap later |
 | Long-running compute (Listmonk, Plausible, Lago) | **Fly.io** | 3 small machines free, 3GB volumes | API-first, per-second billing if we exceed |
-| Domain | `nlqdb.sh` | ~$30/yr (the only fixed cost) | Required; not avoidable |
+| Domains | `nlqdb.com` (canonical) + `nlqdb.ai` (defensive, redirects to `.com`) | ~$85/yr total (`.com` ~$15 + `.ai` ~$70) — the only fixed cost | Required; not avoidable. See §2.1. |
 | LLM inference | Anthropic / OpenAI / Together credits | $5–10k startup credits available | We apply for credits Day 1 |
 | Code hosting + CI | **GitHub** | Free for OSS repos, 2k Action minutes | Standard |
 | MCP distribution | **npm** | Free | Standard |
@@ -696,8 +736,11 @@ Mostly inherited from [`PLAN.md` §8](./PLAN.md), with platform-specific adds:
 
 (Tightened version of [`PLAN.md` §9](./PLAN.md) with this design's specifics.)
 
-1. Register `nlqdb.sh`. Park the Astro hero with the live demo. Open-source
-   the repo on day 1. Apply for Anthropic, OpenAI, Google startup credits.
+1. Wire DNS for the domains we already own (`nlqdb.com`, `nlqdb.ai`) per §2.1.
+   Park the Astro hero with the live demo on `nlqdb.com`; apex-redirect
+   `nlqdb.ai` → `nlqdb.com`. Open-source the repo on day 1. Apply for
+   Anthropic, OpenAI, Google startup credits (and meanwhile run on the
+   strict-$0 inference path in §8.1).
 2. Stand up the Cloudflare-only stack: Pages + Workers + KV + D1 + R2.
 3. Stand up Better Auth on Workers, magic-link only. One sign-in page.
 4. Wire Neon's HTTP driver into Workers. Create a single shared Postgres
@@ -997,10 +1040,10 @@ This section answers "what does it actually look like to use this." Every
 block is the **goal-first default** (per §0.1). Power-user variants are
 shown only when materially different.
 
-### 14.1 Marketing site (`nlqdb.sh`)
+### 14.1 Marketing site (`nlqdb.com`)
 
 ```
-1. User lands on nlqdb.sh.
+1. User lands on nlqdb.com.
 2. Sees ONE input: "What are you building?"
 3. Types: "an orders tracker for my coffee shop"
 4. Hits Enter.
@@ -1012,7 +1055,7 @@ shown only when materially different.
    first database" button.
 ```
 
-### 14.2 Platform web app (`app.nlqdb.sh`)
+### 14.2 Platform web app (`app.nlqdb.com`)
 
 ```
 - After step 7 above, a slim bar appears: "Save this — sign in with GitHub."
@@ -1091,7 +1134,7 @@ first reference. The agent's prompt has one tool, not two.
 **Default (goal-first, the whole "backend"):**
 
 ```html
-<script src="https://elements.nlqdb.sh/v1.js" type="module"></script>
+<script src="https://elements.nlqdb.com/v1.js" type="module"></script>
 
 <nlq-data
   goal="the 5 newest orders, with customer and item"
@@ -1129,7 +1172,7 @@ columns automatically.
 **Default (one endpoint):**
 
 ```bash
-curl https://api.nlqdb.sh/v1/ask \
+curl https://api.nlqdb.com/v1/ask \
   -H "Authorization: Bearer sk_live_..." \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"goal": "an orders tracker", "ask": "how many orders today"}'
@@ -1162,7 +1205,7 @@ user does (left) and what nlqdb does in response (right). Nothing about
 
 | Time | Maya does | nlqdb does |
 |---|---|---|
-| Fri 9:01pm | Lands on `nlqdb.sh`, types *"a meal planner — dishes, ingredients, plans for the week"* | Materializes `meal-planner-7c2`, replies with inferred schema in NL, streams a `<nlq-data>` snippet for "this week's plan" |
+| Fri 9:01pm | Lands on `nlqdb.com`, types *"a meal planner — dishes, ingredients, plans for the week"* | Materializes `meal-planner-7c2`, replies with inferred schema in NL, streams a `<nlq-data>` snippet for "this week's plan" |
 | 9:03pm | Pastes the snippet into her existing Next.js project's `page.tsx`. Adds her publishable key. | Element fetches, renders an empty table, refreshes every 30s |
 | 9:08pm | Types into the chat: *"add 12 sample dishes with realistic ingredients"* | Inserts 12 rows, returns the IDs and a preview |
 | 9:15pm | Adds a `<nlq-action>` form to add new dishes from the UI | Inferred new columns where the form has new fields |
@@ -1203,7 +1246,7 @@ memory layer.
 
 | Time | Priya does | nlqdb does |
 |---|---|---|
-| 2:15pm | Drags the vendor's CSV onto `nlqdb.sh`. Types *"how many of these are already in our users table"* | Uploads CSV as `conference-leads-q2`, joins against the read-only mirror of prod (already permissioned), returns the count and a preview |
+| 2:15pm | Drags the vendor's CSV onto `nlqdb.com`. Types *"how many of these are already in our users table"* | Uploads CSV as `conference-leads-q2`, joins against the read-only mirror of prod (already permissioned), returns the count and a preview |
 | 2:18pm | *"…and which plan are they on"* | Adds the join, returns table |
 | 2:20pm | *"break it down by acquisition channel"* | Adds the group-by, returns chart-ready data |
 | 2:22pm | Clicks "Share result" on the answer | Generates a permalinkable, redacted-by-default link to drop in Slack |
@@ -1246,7 +1289,7 @@ flagged in §0.1 and amended above.
 
 ## 16. Hello-world e2e fullstack tutorial — the 1-pager
 
-This is the tutorial we publish at `nlqdb.sh/hello-world`. It is short on
+This is the tutorial we publish at `nlqdb.com/hello-world`. It is short on
 purpose. If a reader has to scroll twice, we failed.
 
 > ### Build a working orders tracker, end-to-end, in one HTML file.
@@ -1255,7 +1298,7 @@ purpose. If a reader has to scroll twice, we failed.
 >
 > **1. Get a key (10 seconds, no card):**
 >
-> Go to `nlqdb.sh`. Type *"an orders tracker"* in the box. Sign in with GitHub.
+> Go to `nlqdb.com`. Type *"an orders tracker"* in the box. Sign in with GitHub.
 > Copy your `pk_live_...` key from the top-right.
 >
 > **2. Save this as `index.html`:**
@@ -1264,7 +1307,7 @@ purpose. If a reader has to scroll twice, we failed.
 > <!doctype html>
 > <html>
 >   <head>
->     <script src="https://elements.nlqdb.sh/v1.js" type="module"></script>
+>     <script src="https://elements.nlqdb.com/v1.js" type="module"></script>
 >     <title>Orders</title>
 >   </head>
 >   <body>
