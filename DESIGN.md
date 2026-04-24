@@ -682,6 +682,77 @@ Pricing is approximate, April 2026.
    on Modal running a quantized 8B model handles classification at ~$200/mo
    flat — pays back in weeks.
 
+### 8.1 Strict-$0 inference path (Day 1, before any credits)
+
+The previous version of this section assumed Anthropic / OpenAI / Google
+**startup credits** would arrive. Credits take days-to-weeks to be
+approved, and a core value (§0) is that we ship without spending money. We
+need a path that is $0 *with no credits and no card*. The 2026 free-tier
+landscape makes this genuinely viable at our launch scale.
+
+| Job | Strict-$0 provider | Free-tier limit (April 2026) | Card? |
+|---|---|---|---|
+| **Hot-path classification** | **Groq** — Llama 3.1 8B Instant | 30 RPM, 14,400 RPD, 6k TPM, 500k TPD | No |
+| **NL → query plan** (workhorse) | **Google AI Studio** — Gemini 2.5 Flash | 10 RPM, 500 RPD, 250k TPM | No |
+| **Hard-plan fallback** | **Google AI Studio** — Gemini 2.5 Pro | 5 RPM, 100 RPD | No |
+| **Result summarization** | **Groq** — Llama 3.3 70B *or* Qwen3 32B | 30–60 RPM, 1,000 RPD | No |
+| **Embeddings** | **Cloudflare Workers AI** — `@cf/baai/bge-base-en-v1.5` | 10,000 Neurons / day | No |
+| **Universal fallback / dev/test** | **OpenRouter** — free models (`:free` suffix) | ~20 RPM, 200 RPD | No |
+| **Local dev only** | **Ollama** (Llama 3.2 3B / Qwen 2.5 7B on the dev's laptop) | Unlimited locally | No |
+
+**What this gives us at launch (rough math):**
+- Free-tier ceiling is **~500 plan generations/day** (Gemini 2.5 Flash) +
+  **~14,400 classifications/day** (Groq Llama 8B). After the plan cache
+  (§5.1, target 60–80% hit rate) that translates to roughly **2,000–4,000
+  user queries/day** before the first dollar leaves us.
+- Embeddings free quota (10k Neurons/day on Workers AI, where one bge-base
+  embedding ≈ 1 Neuron) covers schema-embedding refresh for **thousands of
+  databases** before paying.
+- This is enough to support our Phase 1 exit-criteria target ([`PLAN.md`
+  §1.7](./PLAN.md): "median first-query latency < 2s, 5 paying customers")
+  with headroom.
+
+**Architecture rule (single config, swap providers without code changes):**
+We route every LLM call through one tiny `llm/` adapter that takes a
+`tier` (`classify | plan | summarize | hard | embed`) and a `provider_chain`
+ordered by cost. Day 1 the chain for `plan` is
+`[gemini_flash_free, groq_llama70b_free, openrouter_free, anthropic_paid]`.
+Day 60 (after credits) we swap the order via a single env var. Day 365
+(self-hosted) we prepend our own. **Zero application code changes** to
+swap providers. The bullet-proof-by-design rule (§9) applies: providers
+are interchangeable by construction.
+
+**Honest constraints we accept on the strict-$0 path:**
+- **Data privacy.** Free tiers (Gemini, Groq, OpenRouter free) **may use
+  inputs to improve the provider's models.** This is **acceptable for
+  free-tier users** (we tell them so plainly in our privacy policy).
+  **Pro-tier customers are routed only through paid providers** with
+  data-retention-off (Anthropic / OpenAI on paid tier, or self-hosted).
+  This is the *only* meaningful free-tier feature reduction we accept,
+  per §6, and it is a privacy upgrade, not a capability reduction.
+- **RPM ceilings.** A burst of 12 simultaneous queries will queue. We add a
+  small per-account token bucket and surface "queued — 2s" in the UI when
+  it happens. Acceptable at our scale.
+- **Provider availability.** Any single free provider can have a bad day.
+  The provider chain (above) means a failure on Gemini falls through to
+  Groq, then OpenRouter, with sub-100ms switch latency. We never depend
+  on one free provider being up.
+- **Geo.** Groq is US-only at the free tier. Gemini and Workers AI are
+  global. Hot-path classification routing also has Workers AI Llama 3 as
+  a backup so non-US first-byte latency stays under 1s.
+
+**Account setup checklist** (live in [`IMPLEMENTATION.md`](./IMPLEMENTATION.md);
+referenced here so the strict-$0 promise is testable, not aspirational):
+
+1. Google AI Studio account → grab `GEMINI_API_KEY` (no card).
+2. Groq Cloud account → grab `GROQ_API_KEY` (no card).
+3. Cloudflare account → enable Workers AI, grab `CF_AI_TOKEN` (no card).
+4. OpenRouter account → grab `OPENROUTER_API_KEY` (no card; only used as
+   fallback).
+5. Wire all four into the `llm/` adapter via env vars on Cloudflare Workers.
+
+**Total cost to add intelligence to the entire product on Day 1: $0.**
+
 ---
 
 ## 9. The bullet-proof-by-design checklist
