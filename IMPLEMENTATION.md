@@ -109,14 +109,39 @@ match). Ordered steps:
    *DNSSEC*), then copy the DS record Cloudflare gives you back to
    GoDaddy's *DNSSEC* page.
 
-**Safe-flip sequencing:** don't switch nameservers until a holding
-page exists. Pending Cloudflare zones cost nothing and wait
-indefinitely for NS. Build `apps/coming-soon/` (static HTML), deploy
-to Cloudflare Pages, pre-populate `CNAME @` / `CNAME www` in the
-pending Cloudflare zone pointing at the `*.pages.dev` URL, **then**
-flip GoDaddy NS. This turns the propagation window into
-`parking-page → coming-soon-page` instead of
-`parking-page → "This domain is not configured"`.
+**Flip sequencing (verified 2026-04-24 against the live wizard).**
+Cloudflare Pages *blocks* Custom-Domain attachment until the zone
+is fully active (`"Transfer your DNS to Cloudflare. Once the
+transfer is complete, you'll be able to add this Custom Domain to
+your Pages project."`). Pending zones cannot pre-bind, so we
+cannot eliminate the propagation gap from the Pages side — only
+minimise it. Actual sequence:
+
+1. Keep the Cloudflare zone pending; deploy `apps/coming-soon/` to
+   the `*.pages.dev` URL via `scripts/deploy-coming-soon.sh`.
+   Pre-launch traffic to `nlqdb-coming-soon.pages.dev` already
+   works on HTTPS via Cloudflare's shared cert.
+2. When committing to the domain flip: GoDaddy → *DNSSEC* →
+   **disable** → wait 1-2 min → *Nameservers* → change to the
+   assigned Cloudflare pair → save.
+3. Wait 5-30 min for zone activation (Cloudflare emails you).
+4. Pages project → *Custom domains* → *Set up a custom domain* →
+   pick **Cloudflare DNS** method (not *My DNS provider* — that is
+   for split-horizon cases where DNS stays authoritatively
+   elsewhere) → enter `nlqdb.com`; repeat for `www.nlqdb.com`.
+   Cloudflare auto-creates CNAMEs in the now-active zone and
+   provisions SSL (~3-5 min).
+
+**Visitor-facing gap** during the 5-30 min between step 2 and
+step 4's cert issuance: a mixed experience. Resolvers whose NS
+cache is still warm serve the old GoDaddy parking page; resolvers
+that have propagated to Cloudflare NS return
+`This domain is not configured` until the custom domain is
+attached and SSL provisions. Acceptable for a pre-launch domain;
+unacceptable in steady state. For the later
+`coming-soon → apps/web` swap, we reassign the Pages
+custom-domain binding between two projects — a ~30-second
+dashboard action that doesn't touch NS.
 
 ### 2.1.1 Inbound email — Cloudflare Email Routing (free)
 
