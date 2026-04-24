@@ -139,4 +139,33 @@ check_http OPENROUTER_API_KEY \
   "https://openrouter.ai/api/v1/auth/key" \
   --match '"data"'
 
+say "Observability"
+# Sentry DSN format:
+#   https://<public-key>@o<org-id>.ingest.sentry.io/<project-id>
+# Verification: hit the project's envelope endpoint with a no-op ping;
+# valid DSN returns HTTP 200 or 400 (400 = "empty envelope body" which
+# confirms the DSN was accepted and routed), invalid returns 401/403.
+if [[ -n "${SENTRY_DSN:-}" ]]; then
+  # Derive ingest URL + auth key from the DSN without printing either.
+  sentry_host=$(echo "$SENTRY_DSN" | sed -nE 's#^https://[^@]+@([^/]+)/.*$#\1#p')
+  sentry_proj=$(echo "$SENTRY_DSN" | sed -nE 's#^https://[^@]+@[^/]+/([0-9]+).*$#\1#p')
+  sentry_key=$(echo "$SENTRY_DSN"  | sed -nE 's#^https://([^:@]+)(:[^@]*)?@.*$#\1#p')
+  if [[ -n "$sentry_host" && -n "$sentry_proj" && -n "$sentry_key" ]]; then
+    body=$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
+      -H "X-Sentry-Auth: Sentry sentry_version=7, sentry_key=${sentry_key}, sentry_client=nlqdb-verify/0.1" \
+      -H "Content-Type: application/x-sentry-envelope" \
+      --data-binary '' \
+      "https://${sentry_host}/api/${sentry_proj}/envelope/" 2>&1)
+    case "$body" in
+      200|400) ok "SENTRY_DSN (HTTP $body, accepted)";;
+      401|403) fail "SENTRY_DSN" "HTTP $body — DSN rejected";;
+      *)       fail "SENTRY_DSN" "HTTP $body (unexpected)";;
+    esac
+  else
+    fail "SENTRY_DSN" "malformed — expected https://<key>@<host>/<projectId>"
+  fi
+else
+  skip "SENTRY_DSN"
+fi
+
 echo ""
