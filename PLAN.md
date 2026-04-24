@@ -141,11 +141,11 @@ The MCP server is the same code path as the HTTP API — not a parallel implemen
 
 **Auth** is a first-class part of the MCP surface, not an afterthought. Full spec in [`DESIGN.md` §3.4, §4.3, §4.4](./DESIGN.md). Summary:
 
-- Install path: `nlq mcp install <host>` — one command that (a) runs the CLI device-code sign-in if needed, (b) mints a host-scoped `sk_mcp_<host>_<device>_…` key, (c) patches the host's config file, (d) runs a self-check.
+- Install path: `nlq mcp install` (no arg) — one command that auto-detects installed hosts on this OS, runs the CLI device-code sign-in if needed, mints a host-scoped `sk_mcp_<host>_<device>_…` key per host, patches the host's config file, and offers to restart Claude Desktop if it's running. Explicit form `nlq mcp install <host>` remains as the power-user override.
 - Per-host, per-device isolation: each host gets its own key and its own DB namespace by default — agents do **not** share credentials.
 - `NLQDB_API_KEY` env var remains the escape hatch for CI / air-gapped boxes.
 
-Install: `nlq mcp install <host>` is the default; `npx -y @nlqdb/mcp` remains for users who want to wire things manually; website one-click install buttons handle the sign-in in-browser.
+Install: `nlq mcp install` (auto-detect) is the default; `npx -y @nlqdb/mcp` remains for users who want to wire things manually; website one-click install buttons handle the sign-in in-browser.
 
 ### 1.6 Phase 1 backend (the shim)
 

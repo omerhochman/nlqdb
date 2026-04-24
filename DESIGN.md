@@ -46,9 +46,13 @@ every tool we ship. If a change violates one of these, it doesn't ship.
     tokens are short-lived (1h) and refreshed in the background; the refresh
     token lives in the OS keychain. If the refresh fails, the surface re-opens
     the browser flow automatically and resumes the original command.
-  - **MCP install is one command.** `nlq mcp install <host>` does sign-in (if
-    needed), provisions a host-scoped key, and patches the host's config. The
-    user never sees the word "token" or "API key" unless they explicitly ask.
+  - **MCP install is one command, no arg.** `nlq mcp install` auto-detects
+    the MCP hosts installed on the machine (Claude Desktop, Cursor, Zed,
+    Windsurf, VS Code, Continue), does sign-in (if needed), provisions a
+    host-scoped key per host, and patches each host's config. The user
+    never sees the word "token", "host ID", or "API key" unless they
+    explicitly ask. Explicit `nlq mcp install <host>` remains a power-user
+    override.
   - **Credentials are never in plaintext files.** CLI and MCP credentials live
     in the OS keychain (macOS Keychain / Windows Credential Manager / libsecret).
     `~/.config/nlqdb/config.toml` holds only non-secret preferences. Env-var
@@ -366,7 +370,9 @@ nlq "how many signups today"           # bare query against the *current* DB
                                        # (the most-recently-used; explicit and visible).
 
 nlq login                              # device-code flow via Better Auth (browser).
-nlq mcp install claude                 # one-click MCP config for Claude Desktop.
+nlq mcp install                        # auto-detects your MCP host(s) and sets them up.
+                                       # Explicit form (`nlq mcp install claude`) is
+                                       # the power-user override — see §3.4.
 ```
 
 **Power-user surface (escape hatches, always available):**
@@ -392,8 +398,16 @@ are not the on-ramp.
 2. **Sign-in on adopt, not on first call.** On the first successful query the
    CLI prints one line: *"Saved as anonymous. Run `nlq login` within 72h to
    keep it."* — no prompt, no blocker. `nlq login` uses the **OAuth 2.0 Device
-   Authorization Grant** against Better Auth: CLI POSTs `/v1/auth/device`,
-   prints a short user code, and opens the browser to `nlqdb.com/device`.
+   Authorization Grant** against Better Auth:
+   - CLI POSTs `/v1/auth/device`, receives `{ user_code, device_code,
+     verification_uri_complete }`.
+   - CLI opens the browser to `verification_uri_complete` — a URL that
+     **already includes the code as a query param** (e.g.
+     `https://nlqdb.com/device?code=ABCD-1234`). The user sees a single
+     "Approve this device?" screen with one button. Zero typing.
+   - The short user code is still printed to the terminal as a fallback in
+     case the browser can't auto-open (SSH sessions, headless, etc.); in
+     that case the user pastes it into `nlqdb.com/device` manually.
    On approval, the CLI polls `/v1/auth/device/token` and on success:
    - Adopts the anonymous DB(s) into the account (one row of SQL per §4.1).
    - Stores a **refresh token** (90d lifetime) in the OS keychain under
@@ -439,32 +453,54 @@ Postgres directly and never holds a database credential. Its only job is to
 forward the caller's identity to `api.nlqdb.com`. Three installation paths,
 all seamless:
 
-1. **`nlq mcp install <host>`** (recommended, 95% of users). One command does
-   everything:
-   a. If the user isn't signed in on this machine, triggers the `nlq login`
-      device-code flow (§3.3).
-   b. Calls `POST /v1/keys` with `{ scope: "mcp", host: "<host>",
+1. **`nlq mcp install`** *(no arg — the default)*. Covers 95% of users. The
+   CLI:
+   a. Scans the known MCP-host config paths on this OS (list below) and
+      prints what it found in one line: *"Found: Claude Desktop, Cursor.
+      Not installed: Zed, Windsurf, VS Code, Continue."* Transparency is a
+      core value — we never touch files the user didn't see us name.
+   b. If **exactly one** host is found → installs to it silently.
+      If **multiple** are found → prompts with a numbered list and installs
+      to the selected one (or all via `--all`).
+      If **none** are found → prints a one-line list of supported hosts with
+      their install links and exits.
+   c. If the user isn't signed in on this machine, triggers the `nlq login`
+      device-code flow (§3.3) **before** touching any host config.
+   d. Calls `POST /v1/keys` with `{ scope: "mcp", host: "<detected>",
       device_id: <hash-of-machine-id> }` to mint a **host-scoped API key**
-      (`sk_mcp_<host>_...`, see §4.1). The key is displayed to the user
-      exactly once in the terminal, and then written directly to the host's
-      config file at the correct path:
-      - Claude Desktop: `~/Library/Application Support/Claude/config.json` (macOS)
+      (`sk_mcp_<host>_...`, see §4.1). The key is never displayed — it's
+      written directly to the host's config file at the correct path:
+      - Claude Desktop: `~/Library/Application Support/Claude/config.json` (macOS),
+        `%APPDATA%\Claude\config.json` (Windows), `~/.config/Claude/config.json` (Linux)
       - Cursor: `~/.cursor/mcp.json`
       - Zed: `~/.config/zed/settings.json`
-      - Windsurf, VS Code, Continue: analogous per-host paths.
-   c. The CLI validates the write by starting the MCP server once and issuing
-      a self-check `nlqdb_list_databases()` call. Green check on success.
-   d. Total user-visible steps: one command, one browser approval, done.
-2. **Website one-click install button** (for users who reach us via the web
-   first). `app.nlqdb.com/install/<host>` generates a host-scoped key
-   server-side, then redirects to a `nlqdb://install?token=...&host=...` deep
-   link. The locally-installed CLI (or a short-lived helper binary if the CLI
-   isn't installed yet) handles the write. Same end state as path 1, with the
-   sign-in happening in the browser instead of triggered from the CLI.
-3. **Manual `NLQDB_API_KEY=...`** (power users, CI, air-gapped boxes). The
-   env var is honored, takes precedence over any config file, and is the
-   documented escape hatch for scripted setups. Users generate the key in the
-   dashboard; the same `sk_mcp_` scoping rules apply.
+      - Windsurf, VS Code, Continue: analogous per-host paths (same detection
+        list hard-coded in the CLI).
+   e. **Auto-reload when possible.** For hosts that watch their config (Cursor,
+      Zed, Windsurf), the new server becomes available within seconds with no
+      restart. For Claude Desktop (which doesn't hot-reload), the CLI detects
+      whether the app is running and prompts: *"Restart Claude Desktop to
+      activate? [Y/n]"* — on Y, it gracefully quits and re-launches the app.
+   f. Validates the write by starting the MCP server once and issuing a
+      self-check `nlqdb_list_databases()` call. Green check on success.
+   g. **Total user-visible steps: one command, one browser approval (first
+      time only), one restart prompt (Claude Desktop only). Nothing to type,
+      nothing to remember.**
+2. **Explicit host** `nlq mcp install <host>` *(power-user override)*.
+   Skips auto-detection; targets the named host even if it's not installed
+   (useful for pre-configuring machines). `<host>` ∈ {`claude`, `cursor`,
+   `zed`, `windsurf`, `vscode`, `continue`}. Same auth/key/config steps as
+   path 1.
+3. **Website one-click install button** (for users who reach us via the web
+   first). The button on `app.nlqdb.com/mcp` detects the user's platform,
+   generates a host-scoped key server-side, and returns an
+   `nlqdb://install?token=...&host=...` deep link. The locally-installed CLI
+   (or a short-lived helper binary if the CLI isn't installed yet) handles
+   the write. Same end state as path 1.
+4. **Manual `NLQDB_API_KEY=...`** (CI, Docker, air-gapped). The env var is
+   honored, takes precedence over any config file, and is the documented
+   escape hatch. Users generate the key in the dashboard; the same `sk_mcp_`
+   scoping rules apply.
 
 **Key scoping and per-host isolation** (resolves the "same key for all agents"
 concern — agents do **not** share credentials):
@@ -478,8 +514,9 @@ concern — agents do **not** share credentials):
   (one click), or pin a DB to a specific host.
 - Revocation at the dashboard is instant: the next tool call returns `401
   key_revoked`, which the MCP server surfaces to the host LLM as a tool-use
-  error that says *"Sign in again: run `nlq mcp install <host>`."* The host
-  prompts the user; re-install is a single command.
+  error that says *"Sign in again: run `nlq mcp install`."* The host
+  prompts the user; re-install is a single command (auto-detects the host
+  it was originally installed for).
 
 **Transport auth**: the MCP server authenticates **to the API** with the
 scoped key. It does **not** accept arbitrary inbound connections — it speaks
@@ -619,33 +656,39 @@ differs is only the front-end of the flow.
 |---|---|---|---|---|
 | Web (`nlqdb.com`, `app.nlqdb.com`) | Magic link / passkey / GitHub / Google | `__Host-session` HttpOnly cookie (JWT) | 1h | Rotating refresh in KV, 30d sliding |
 | CLI (`nlq`) | Device-code flow (`nlq login`) | OS keychain (refresh), in-memory (access) | 1h | 90d refresh, rotated on every use |
-| MCP server | `nlq mcp install <host>` → scoped key | Host's config file (key only); no session | n/a (long-lived key) | Key rotation, not refresh |
+| MCP server | `nlq mcp install` (auto-detect) → scoped key per host | Host's config file (key only); no session | n/a (long-lived key) | Key rotation, not refresh |
 | Embed element | `pk_live_` publishable key | Inline in HTML | n/a (long-lived key) | Key rotation, not refresh |
 
 **The device-code flow** (used by `nlq login` and by the optional
 "authenticate this terminal" flow for embed editing):
 
 ```
-CLI                         API (Workers)                Browser
- │                              │                           │
- │─POST /v1/auth/device────────►│                           │
- │                              │                           │
- │◄─{user_code, device_code,────│                           │
- │   verification_uri, interval}│                           │
- │                              │                           │
- │  print "Go to nlqdb.com/device, enter: ABCD-1234"        │
- │  open browser ─────────────────────────────────────────► │
- │                              │◄─── user approves ────────│
- │                              │                           │
- │─POST /v1/auth/device/token──►│                           │
- │  (poll every `interval` s)   │                           │
- │                              │                           │
- │◄─{access_token, refresh_token,                            │
- │   expires_in: 3600}──────────│                           │
- │                              │                           │
- │  write refresh_token to OS keychain                       │
- │  hold access_token in memory                              │
+CLI                         API (Workers)                       Browser
+ │                              │                                  │
+ │─POST /v1/auth/device────────►│                                  │
+ │                              │                                  │
+ │◄─{user_code, device_code,────│                                  │
+ │   verification_uri_complete, │                                  │
+ │   interval}                  │                                  │
+ │                              │                                  │
+ │  open verification_uri_complete (code embedded in URL) ───────► │
+ │  print user_code to terminal as fallback                        │
+ │                              │◄─── user clicks "Approve" ───────│
+ │                              │                                  │
+ │─POST /v1/auth/device/token──►│                                  │
+ │  (poll every `interval` s)   │                                  │
+ │                              │                                  │
+ │◄─{access_token, refresh_token,                                   │
+ │   expires_in: 3600}──────────│                                  │
+ │                              │                                  │
+ │  write refresh_token to OS keychain                              │
+ │  hold access_token in memory                                     │
 ```
+
+The `verification_uri_complete` carries the `user_code` as a query param so
+the approval screen has nothing to type — one click. The raw `user_code` is
+still printed as a fallback for headless / SSH sessions where the CLI can't
+open a browser.
 
 **Refresh protocol** (shared by web and CLI, different storage):
 
@@ -1422,13 +1465,15 @@ That's it. The DB exists. There is no `nlq db create` step the user had to know 
 
 ```bash
 $ nlq login
-→ Enter ABCD-1234 at https://nlqdb.com/device  (browser opens)
+→ Opening browser to approve this device… (fallback code: ABCD-1234)
 ✓ Signed in as maya@example.com. Adopted 1 anonymous DB: orders-tracker-a4f.
 ```
 
-The refresh token is written to the macOS Keychain (or libsecret / Credential
-Manager on other OSes). Every subsequent call silently refreshes the access
-token as needed — the user never sees "session expired".
+The browser lands on a single "Approve this device?" screen with the code
+already pre-filled in the URL — one click, no typing. The refresh token is
+written to the macOS Keychain (or libsecret / Credential Manager on other
+OSes). Every subsequent call silently refreshes the access token as needed —
+the user never sees "session expired".
 
 **Day-2 ops** (still one line each):
 
@@ -1452,22 +1497,34 @@ $ nlq connection finance     # raw Postgres URL — drop into your own app
 
 ### 14.4 MCP server (`@nlqdb/mcp`)
 
-**Install** (one line per host; signs you in if needed, mints a host-scoped
-key, writes the host's config — all per §3.4 and §4.3):
+**Install** (one command, no arg; auto-detects what you have installed — per §3.4 and §4.3):
 
 ```bash
-$ nlq mcp install claude
-→ Not signed in on this machine. Opening browser… enter AB12-CD34 at nlqdb.com/device
+$ nlq mcp install
+🔎 Scanning: Claude Desktop, Cursor, Zed, Windsurf, VS Code, Continue
+✓ Found: Claude Desktop, Cursor
+
+→ Opening browser to approve this device… (fallback code: AB12-CD34)
 ✓ Signed in as jordan@example.com.
-✓ Minted sk_mcp_claude_macbook-pro_…e71f (visible at nlqdb.com/settings/keys).
-✓ Wrote ~/Library/Application Support/Claude/config.json.
-✓ Self-check: nlqdb_list_databases() returned []. Restart Claude Desktop to pick it up.
 
-$ nlq mcp install cursor     # already signed in — skips step 1
-✓ Minted sk_mcp_cursor_macbook-pro_…9a2c. Wrote ~/.cursor/mcp.json.
+✓ Claude Desktop  — wrote config; Claude Desktop is running, restart to activate? [Y/n] y
+                    ↳ quit & relaunched. Self-check: ok.
+✓ Cursor          — wrote config; hot-reloaded. Self-check: ok.
 
-$ nlq mcp install zed        # ditto
-✓ …
+Done. Your MCP keys appear at nlqdb.com/settings/keys.
+```
+
+If only one host is installed, the prompt is skipped and the install is
+silent. If none are installed, the CLI prints one line pointing the user at
+`nlqdb.com/mcp` and exits — no harm done.
+
+**Power-user forms** (escape hatches, always available):
+
+```bash
+$ nlq mcp install claude       # explicit host; skips auto-detection
+$ nlq mcp install --all        # install into every detected host, no prompt
+$ nlq mcp install --dry-run    # print what would happen; touch nothing
+$ NLQDB_API_KEY=sk_... nlq …   # CI / Docker / air-gapped — env-var override
 ```
 
 **Usage from inside the host LLM** (the agent doesn't need to know about
@@ -1509,6 +1566,12 @@ That's the entire backend for a live order list. There is no API to write,
 no schema to define, no JSON to parse, no React to render. The element
 fetches, renders the table template, and refreshes every 10 seconds.
 
+**Getting `api-key` is never a separate errand.** Every chat surface — web,
+CLI, MCP — offers a "Copy snippet" action next to any generated query; the
+copied HTML has the user's `pk_live_` already inlined. The user never has
+to open the dashboard, find the keys page, click "Reveal", and paste.
+The key is right there, in the code they were about to use.
+
 **Day-2 (still no backend):**
 
 ```html
@@ -1530,12 +1593,11 @@ columns automatically.
 
 ### 14.6 HTTP API (when none of the above fit)
 
-**Default (one endpoint):**
+**Default (one endpoint; reads need no idempotency header):**
 
 ```bash
 curl https://api.nlqdb.com/v1/ask \
   -H "Authorization: Bearer sk_live_..." \
-  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"goal": "an orders tracker", "ask": "how many orders today"}'
 
 → 200 {
@@ -1548,6 +1610,30 @@ curl https://api.nlqdb.com/v1/ask \
 
 The `session.db` and `session.key` come back so the caller *can* go
 DB-explicit on subsequent calls if they want. They don't have to.
+
+**Writes** (anything that mutates state) require `Idempotency-Key`:
+
+```bash
+curl https://api.nlqdb.com/v1/ask \
+  -H "Authorization: Bearer sk_live_..." \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"ask": "add an order: alice, latte, 5.50"}'
+```
+
+The API **auto-classifies** the call; reads without a key succeed, writes
+without a key return `400 idempotency_required` with a curl snippet in the
+body showing the exact missing header. The user is never left guessing.
+
+**Anonymous mode from curl** (no key, no sign-in — useful for `curl |` one-liners):
+
+```bash
+curl https://api.nlqdb.com/v1/ask \
+  -d '{"goal": "an orders tracker", "ask": "how many orders today"}'
+→ 200 { …, "session": { "anonymous_token": "anon_…" } }
+```
+
+Subsequent calls pass `Authorization: Bearer anon_…` to reuse the session.
+72h window same as the web (§4.1).
 
 **Power-user path** (the two-endpoint API from [`PLAN.md` §1.3](./PLAN.md))
 remains available unchanged for callers who already think in DBs.
@@ -1566,8 +1652,8 @@ user does (left) and what nlqdb does in response (right). Nothing about
 
 | Time | Maya does | nlqdb does |
 |---|---|---|
-| Fri 9:01pm | Lands on `nlqdb.com`, types *"a meal planner — dishes, ingredients, plans for the week"* | Materializes `meal-planner-7c2`, replies with inferred schema in NL, streams a `<nlq-data>` snippet for "this week's plan" |
-| 9:03pm | Pastes the snippet into her existing Next.js project's `page.tsx`. Adds her publishable key. | Element fetches, renders an empty table, refreshes every 30s |
+| Fri 9:01pm | Lands on `nlqdb.com`, types *"a meal planner — dishes, ingredients, plans for the week"* | Materializes `meal-planner-7c2`, replies with inferred schema in NL, streams a `<nlq-data>` snippet for "this week's plan" **with her `pk_live_` key already inlined** — Copy-to-clipboard button right next to it |
+| 9:03pm | Pastes the snippet into her existing Next.js project's `page.tsx` | Element fetches, renders an empty table, refreshes every 30s — zero config |
 | 9:08pm | Types into the chat: *"add 12 sample dishes with realistic ingredients"* | Inserts 12 rows, returns the IDs and a preview |
 | 9:15pm | Adds a `<nlq-action>` form to add new dishes from the UI | Inferred new columns where the form has new fields |
 | 11:30pm | Deploys to Vercel. Site is live. | — |
@@ -1587,12 +1673,12 @@ a single SQL statement.
 
 | Step | Jordan does | nlqdb does |
 |---|---|---|
-| 1 | `npx -y @nlqdb/mcp` once, sets `NLQDB_API_KEY` env | MCP server registers, exposes `nlqdb_query` to the agent |
+| 1 | On his laptop: runs `nlq mcp install`. The CLI auto-detects Claude Desktop + Cursor, opens the browser, he clicks Approve once. | Signs him in, mints a scoped MCP key per host, patches both configs, prompts him to restart Claude Desktop — all from one command. |
 | 2 | In the agent's system prompt: *"You have a tool `nlqdb_query`. Call it with a `db` and a `q` in plain English. The `db` can be any string — it'll be created if new."* | — |
 | 3 | Agent runs first session. On a fact: `nlqdb_query("research-memory", "remember: the user is researching solar panels in Berlin")` | DB `research-memory-...` materialized, row inserted |
 | 4 | Agent ends session, reopens hours later: `nlqdb_query("research-memory", "what do I know about the user's research topic?")` | Returns the stored fact |
 | 5 | Jordan watches the platform: clicks `research-memory`, sees every query the agent ran today, including the ones that returned zero rows | Trace + query log per [`PLAN.md` §2.2](./PLAN.md) |
-| 6 | Ships the agent on Modal. Anonymous → adopted on Jordan's sign-in. | — |
+| 6 | Deploys the agent on Modal. Sets `NLQDB_API_KEY` (from the dashboard) as a Modal secret — the one env var he touches. | Agent uses the `sk_live_` key; Modal's env-var flow stays idiomatic; no keychain or browser flow on the deploy target. |
 
 **What Jordan never wrote:** a vector-store glue layer, a schema for memory,
 a session-lifecycle service, a per-agent provisioning script, a metadata
@@ -1625,14 +1711,16 @@ opened Excel, learned SQL, installed a BI tool, got prod credentials.
 
 | Step | Aarav does | nlqdb does |
 |---|---|---|
-| 1 | `nlq new "a blog with posts and authors"` | DB created, schema inferred, replies with the SQL it ran ("…in case you're curious — your assignment asks for it") |
+| 1 | Opens `nlqdb.com` on the library laptop, types *"a blog with posts and authors"* | DB created anonymously (no signup), schema inferred, replies with the SQL it ran ("…in case you're curious — your assignment asks for it") |
 | 2 | Pastes the SQL into his write-up | — |
 | 3 | Types *"add a sample post by 'Aarav' titled 'hello world'"* | Inserts the row |
-| 4 | Drops `<nlq-data goal="latest 5 posts" template="card-grid" ...>` into his static-HTML assignment | Renders the blog feed |
-| 5 | Submits the assignment | — |
+| 4 | Clicks "Copy starter HTML" in the chat — a pre-keyed `<nlq-data>` snippet lands on his clipboard | — |
+| 5 | Pastes it into his static-HTML assignment | Renders the blog feed, no build step |
+| 6 | *(Optional)* Signs in with GitHub to keep the DB past 72h | Anonymous DB adopted into his account in one SQL row (§4.1) |
+| 7 | Submits the assignment | — |
 
 **What Aarav never did:** ran `brew install postgresql`, dealt with a port
-conflict, learned what `pg_hba.conf` is, gave up on day 1.
+conflict, installed a CLI, learned what `pg_hba.conf` is, gave up on day 1.
 
 The chat **also taught him** the SQL it generated, so he understands what
 his own project does. The free tier costs us cents and produces a future
@@ -1657,12 +1745,15 @@ purpose. If a reader has to scroll twice, we failed.
 >
 > No backend code. No database setup. No build step. No framework.
 >
-> **1. Get a key (10 seconds, no card):**
+> **1. Get your starter HTML (10 seconds, no card, no key-copying):**
 >
-> Go to `nlqdb.com`. Type *"an orders tracker"* in the box. Sign in with GitHub.
-> Copy your `pk_live_...` key from the top-right.
+> Go to `nlqdb.com`. Type *"an orders tracker"* in the box. The chat's first
+> reply includes a **"Copy starter HTML"** button — click it. Your
+> publishable key is already inlined; nothing to paste, nothing to search
+> for. *(No sign-in required; the DB lives anonymously for 72h. Sign in
+> anytime to keep it — see §4.1.)*
 >
-> **2. Save this as `index.html`:**
+> **2. Save what you copied as `index.html`:**
 >
 > ```html
 > <!doctype html>
@@ -1676,7 +1767,7 @@ purpose. If a reader has to scroll twice, we failed.
 >
 >     <nlq-data
 >       goal="today's orders, newest first"
->       api-key="pk_live_REPLACE_ME"
+>       api-key="pk_live_abc123…yourkey"   <!-- pre-filled by the Copy button -->
 >       template="table"
 >       refresh="5s"
 >     ></nlq-data>
@@ -1688,7 +1779,7 @@ purpose. If a reader has to scroll twice, we failed.
 >       <input name="total"    placeholder="total"    required type="number" step="0.01" />
 >       <nlq-action
 >         goal="add an order from this form"
->         api-key="pk_live_REPLACE_ME"
+>         api-key="pk_live_abc123…yourkey"
 >         on-success="reload"
 >       >Add order</nlq-action>
 >     </form>

@@ -182,6 +182,14 @@ two domains.
     All specified in [`DESIGN.md` §4.3](./DESIGN.md). These ship in Phase 0
     even though the CLI that consumes them is Phase 2 — they're shared
     with the web app's sign-in flow and cheap to test standalone.
+    `POST /v1/auth/device` must return `verification_uri_complete` (the
+    code embedded in the URL as a query param) so the approval page is
+    one-click — no typing — per [`DESIGN.md` §3.3](./DESIGN.md).
+  - **Approval page** `nlqdb.com/device` — reads `?code=` param, shows a
+    single "Approve this device?" button with the device's user-agent +
+    coarse geo. On Approve, calls `/v1/auth/device/approve` with the
+    user's session cookie. Fallback form accepts the code manually for
+    SSH / headless cases.
   - **Refresh-token rotation**: every refresh issues a new refresh token;
     prior one is marked used. KV revocation set keyed by `jti`.
   - **Internal JWT signer** ([`DESIGN.md` §4.4](./DESIGN.md)): edge-only
@@ -241,6 +249,12 @@ and §3.1](./DESIGN.md) works for a stranger.
 - **`<nlq-data>` element** v0 — `goal=` and `db=` attributes;
   templates: `table`, `list`, `kv`. (`card-grid`, `chart` deferred to
   Phase 2.) Distributed via `elements.nlqdb.com` → R2.
+- **"Copy snippet" / "Copy starter HTML" buttons** in the chat
+  ([`DESIGN.md` §14.5, §16](./DESIGN.md)) — every generated `<nlq-data>`
+  example has the user's `pk_live_` key **pre-inlined** before it's put
+  on the clipboard. For anonymous users, a temporary key is minted and
+  rotated into the `sk_live_`/`pk_live_` pair on sign-in (per
+  [`DESIGN.md` §4.1](./DESIGN.md) anonymous adoption).
 - **Hello-world tutorial** ([`DESIGN.md` §16](./DESIGN.md)) — published
   at `nlqdb.com/hello-world` and pinned in the README.
 - **Resend** wired for transactional email; one template (magic link).
@@ -294,14 +308,19 @@ ecosystem. Aligns with P2 (Agent Builder) success criteria in
 - **MCP server** — `@nlqdb/mcp`, published to npm. Tools: `nlqdb_query`,
   `nlqdb_list_databases`, `nlqdb_describe`. (No `nlqdb_create_database`
   tool — DBs materialize on first reference per [`DESIGN.md` §0.1](./DESIGN.md).)
-  - **`nlq mcp install <host>`** ([`DESIGN.md` §3.4](./DESIGN.md)): one
-    command does sign-in (if needed), mints `sk_mcp_<host>_<device>_…`,
-    patches the host's config file at the right path, runs a self-check.
+  - **`nlq mcp install`** (no arg, auto-detect — the default, per
+    [`DESIGN.md` §3.4](./DESIGN.md)): scans known host config paths on the
+    user's OS, prints what was found, signs them in if needed, mints
+    `sk_mcp_<host>_<device>_…`, patches the host's config, offers to
+    restart Claude Desktop when it's running, runs a self-check.
     Targets: Claude Desktop, Cursor, Zed, Windsurf, VS Code, Continue.
-  - **Website one-click install**: `app.nlqdb.com/install/<host>` mints
-    the scoped key server-side and returns an `nlqdb://install?…` deep
-    link the CLI handles. If the CLI isn't installed, the page offers a
-    short-lived helper binary that does only the config-file write.
+    Flags: `--all`, `--dry-run`. Explicit form `nlq mcp install <host>`
+    remains as the power-user override.
+  - **Website one-click install**: `app.nlqdb.com/mcp` detects the user's
+    platform, mints the scoped key server-side, and returns an
+    `nlqdb://install?…` deep link the CLI handles. If the CLI isn't
+    installed, the page offers a short-lived helper binary that does only
+    the config-file write.
   - **Per-host DB isolation**: DBs created via MCP are tagged with
     `(mcp_host, device_id)` in D1 and hidden from other hosts by default,
     per [`DESIGN.md` §3.4](./DESIGN.md). Promote-to-account is a one-click
