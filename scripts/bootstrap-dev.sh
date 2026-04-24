@@ -140,6 +140,7 @@ install_tool golangci-lint golangci-lint
 install_tool gofumpt       gofumpt
 install_tool ruff          ruff
 install_tool shellcheck    shellcheck
+install_tool age           age
 
 # --- 4. Ollama + local models (§2.4) ------------------------------------
 

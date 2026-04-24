@@ -212,8 +212,39 @@ When it does, it'll deploy via `wrangler deploy` from `apps/api/`.
 ```bash
 git pull                        # pick up any merged PRs
 direnv allow .                  # re-source .envrc if needed
-./scripts/verify-secrets.sh     # should be 12/12 green
+./scripts/verify-secrets.sh     # should be all-green
 gh pr list                      # what's open
+```
+
+### New machine (or recovering from lost `.envrc`)
+
+```bash
+git clone git@github.com:nlqdb/nlqdb.git && cd nlqdb
+scripts/bootstrap-dev.sh        # installs tools, creates stub .envrc
+scripts/restore-envrc.sh        # prompts for passphrase, decrypts .envrc.age → .envrc
+./scripts/verify-secrets.sh     # should be all-green
+```
+
+**`.envrc.age`** is the encrypted backup of `.envrc`, committed to the
+repo root. It's produced by `scripts/backup-envrc.sh`, which uses age
+passphrase mode (scrypt KDF at cost 2^18). Safe to commit to a public
+repo only if the passphrase is strong (20+ mixed characters, not
+reused, not dictionary-derivable). Refresh it any time `.envrc`
+changes:
+
+```bash
+scripts/backup-envrc.sh         # encrypts .envrc → .envrc.age
+git add .envrc.age && git commit -m "chore: refresh encrypted .envrc backup"
+```
+
+If you'd rather keep the encrypted backup outside the repo (e.g. in
+iCloud Drive, a private gist, a USB stick), set `NLQDB_BACKUP_DIR`
+before running either script:
+
+```bash
+NLQDB_BACKUP_DIR=~/Library/Mobile\ Documents/com~apple~CloudDocs scripts/backup-envrc.sh
+# and on the destination machine:
+NLQDB_BACKUP_DIR=~/Library/Mobile\ Documents/com~apple~CloudDocs scripts/restore-envrc.sh
 ```
 
 ### When a credential fails verify
