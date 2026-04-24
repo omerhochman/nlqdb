@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "_comment": "Root tsconfig — editor / type-aware tooling pick this up. Per-workspace tsconfigs extend tsconfig.base.json and are referenced here once they exist (enables incremental multi-project builds).",
+  "extends": "./tsconfig.base.json",
+  "files": [],
+  "references": []
+}

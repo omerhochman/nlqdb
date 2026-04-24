@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Local env / secrets — never commit
+.envrc
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Build / cache
+dist/
+build/
+.next/
+.astro/
+.turbo/
+.wrangler/
+.cache/
+coverage/
+
+# Formatter / linter / tooling caches
+.biome-cache/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Python (uv)
+.venv/
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.recommended.json
+
+# Logs
+*.log
+bun-debug.log*
+
+# Go
+/cli/bin/
+/cli/dist/
+
+# Terraform (if/when we add IaC)
+*.tfstate
+*.tfstate.*
+.terraform/

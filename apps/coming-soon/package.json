@@ -1,0 +1,10 @@
+{
+  "name": "@nlqdb/coming-soon",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Static holding page for nlqdb.com. Replaced by apps/web in Phase 0.",
+  "scripts": {
+    "dev": "bun x serve .",
+    "deploy": "wrangler pages deploy . --project-name=nlqdb-coming-soon"
+  }
+}

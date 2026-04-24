@@ -1,0 +1,7 @@
+# Coming-soon site. Let search engines see this until Phase 0 launches
+# the real marketing site, at which point this project is swapped out
+# under the same custom domain (see IMPLEMENTATION.md §2.1).
+User-agent: *
+Allow: /
+
+Sitemap: https://nlqdb.com/sitemap.xml

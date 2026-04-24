@@ -527,6 +527,7 @@ have paying customers.
 
 | Concern | Tool | Free tier (Apr 2026) |
 |---|---|---|
+| Zone (DNS, CDN, SSL, L7 DDoS, WAF) | Cloudflare **Free plan**, per zone | Unmetered DNS + CDN + DDoS; 5 custom rules, 5 WAF rules, 70 page rules; common-bot challenge only. Upgrade triggers in IMPLEMENTATION §2.1. |
 | Marketing site | Cloudflare Pages | Unlimited requests, 500 builds/mo |
 | Edge compute | Cloudflare Workers | 100k req/day, 10ms CPU/req |
 | Session / plan cache | Cloudflare KV | 100k reads/day, 1k writes/day |
@@ -534,6 +535,7 @@ have paying customers.
 | User DBs (Postgres) | Neon | 0.5GB, scale-to-zero |
 | User DBs (Redis) | Upstash | 10k cmds/day, 256MB |
 | Object storage | Cloudflare R2 | 10GB, 1M Class A ops/mo, **zero egress** |
+| Inbound email (forwarding) | Cloudflare Email Routing | Unlimited volume, 200 rules/zone (Free plan feature) |
 | Transactional email | Resend | 3k/mo, 100/day |
 | Marketing email | Listmonk (self-hosted) → SES | Unlimited send via SES |
 | Email fallback | AWS SES | 62k/mo free from EC2 |
@@ -726,11 +728,17 @@ nlqdb/actions/
 - **Auto-detects language** from `package.json` / `go.mod` / `pyproject.toml`.
   No `language:` input.
 - **Concurrency-safe** — cancels in-flight runs on the same ref.
-- **Cached aggressively** — pnpm store, Go build cache.
+- **Cached aggressively** — Bun install cache (`~/.bun/install/cache`),
+  `bun.lockb`, Go build cache, uv cache (`~/.cache/uv`).
 - **Implicit matrix** — Ubuntu + repo's pinned version by default. Opt-in
   via `matrix-os:` / `matrix-versions:`.
 - **Fast-fail order:** lint → typecheck → test → build → scan → release.
   Cheapest signal first.
+- **Lint/format stack** (IMPLEMENTATION §2.8): **Biome** for JS/TS/JSON/CSS
+  (single binary, no Prettier+ESLint duo); **gofumpt** + **golangci-lint**
+  for Go; **ruff** for Python. Devs run the same commands locally via
+  **lefthook** pre-commit hooks; CI is the backstop, not the first line
+  of defense.
 - **Free for public repos** — $0/mo per §7.
 
 Inputs: `package-manager` (optional), `run-release` (default false),

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true">
+  <rect width="64" height="64" rx="14" fill="#0b0b10"/>
+  <text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle"
+        font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="22" font-weight="600" letter-spacing="-1" fill="#ffd84d">
+    nlq
+  </text>
+</svg>
