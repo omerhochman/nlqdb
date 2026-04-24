@@ -13,8 +13,11 @@ Everything else — engine choice (Postgres / Mongo / Redis / DuckDB / pgvector 
 
 Pre-alpha. Planning phase.
 
+- [DESIGN.md](./DESIGN.md) — high-level system design (surfaces, auth, pricing, $0 stack, AI-model selection, CI/CD, hello-world tutorial).
+- [IMPLEMENTATION.md](./IMPLEMENTATION.md) — phased execution plan and the $0/no-card prerequisites checklist (accounts, API keys).
 - [PLAN.md](./PLAN.md) — phased roadmap, architecture, alternative-tech evaluation, cost/pricing discussion.
 - [PERSONAS.md](./PERSONAS.md) — who we're building for (and who we're not), prioritized use cases.
+- [COMPETITORS.md](./COMPETITORS.md) — competitive landscape.
 
 ## Surfaces (planned, Phase 1)
 
