@@ -101,11 +101,22 @@ but do not block on it):**
 
 - [ ] **Better Auth** — open-source library, no account needed; the only
       thing to capture is the secret we'll generate ourselves
-      (`BETTER_AUTH_SECRET`).
+      (`BETTER_AUTH_SECRET`). See [`DESIGN.md` §4.3](./DESIGN.md) for the
+      full session-lifecycle spec that Phase 0 implements.
+- [ ] **Internal JWT signer secret** (`INTERNAL_JWT_SECRET`) — generated
+      ourselves, Cloudflare-Workers-only, never exposed. Signs the short-
+      lived (30s) JWTs used for every edge-to-downstream call per
+      [`DESIGN.md` §4.4](./DESIGN.md).
 - [ ] **GitHub OAuth app** for "Sign in with GitHub" — capture
-      `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`.
+      `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`. Redirect URIs must
+      include `https://app.nlqdb.com/auth/callback/github` and
+      `https://nlqdb.com/device/approve` (for the CLI device-code flow).
 - [ ] **Google OAuth client** in Google Cloud Console — capture
-      `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+      `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. Same redirect URI set.
+- [ ] **OS keychain libraries** for the CLI build:
+      `github.com/zalando/go-keyring` (zero runtime cost; cross-platform).
+      No account / key to capture — just a build dependency called out
+      here so it isn't forgotten.
 - [ ] **Resend** account (free tier — 3k/mo, 100/day) — capture
       `RESEND_API_KEY`. Configure SPF, DKIM, DMARC for `nlqdb.com`.
 - [ ] **AWS** account (free tier — 62k SES emails/mo from EC2) as
@@ -163,9 +174,22 @@ two domains.
 - Implement the **plan cache** (KV, content-addressed by
   `(schema_hash, query_hash)`) — the single biggest cost lever per
   [`PLAN.md` §5.1](./PLAN.md).
-- Implement the **auth scaffold** with Better Auth: magic link only,
-  GitHub OAuth, anonymous-mode adoption window. No UI yet beyond a
-  utilitarian sign-in page.
+- Implement the **auth scaffold** with Better Auth per [`DESIGN.md` §4](./DESIGN.md):
+  magic link, GitHub OAuth, anonymous-mode adoption window. No UI yet
+  beyond a utilitarian sign-in page.
+  - **Device authorization endpoints**: `POST /v1/auth/device`,
+    `POST /v1/auth/device/token`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`.
+    All specified in [`DESIGN.md` §4.3](./DESIGN.md). These ship in Phase 0
+    even though the CLI that consumes them is Phase 2 — they're shared
+    with the web app's sign-in flow and cheap to test standalone.
+  - **Refresh-token rotation**: every refresh issues a new refresh token;
+    prior one is marked used. KV revocation set keyed by `jti`.
+  - **Internal JWT signer** ([`DESIGN.md` §4.4](./DESIGN.md)): edge-only
+    secret, 30s TTL, signs every downstream call. One utility module in
+    `packages/auth-internal`, one unit test per consumer (plan cache, pool,
+    LLM router) that verifies they reject unsigned calls.
+  - **Key storage**: Argon2id-hashed `pk_live_`, `sk_live_`, `sk_mcp_*` rows
+    in D1 with last-4 cleartext suffix for display.
 - Implement **one** Postgres adapter (Neon HTTP driver) and the
   schema-per-DB tenancy pattern from [`PLAN.md` §1.6](./PLAN.md).
 - Build the **`POST /v1/ask`** endpoint end-to-end (goal → DB created →
@@ -201,9 +225,19 @@ and §3.1](./DESIGN.md) works for a stranger.
   trace). Cmd+K palette. Cmd+/ trace toggle. In-place edit + re-run.
 - **Anonymous-mode end-to-end** — DB survives 72h on a localStorage
   token; adopted on sign-in with one row of SQL.
-- **Sign-in** — magic link + GitHub OAuth (Google deferred).
+- **Sign-in** — magic link + GitHub OAuth (Google deferred). Web uses the
+  same `/v1/auth/*` endpoints stood up in Phase 0. Cookie is
+  `__Host-session` (HttpOnly, SameSite=Lax, Secure).
+- **Silent refresh + seamless re-auth** on the web per [`DESIGN.md`
+  §4.3](./DESIGN.md): 401 on any fetch triggers an in-flight refresh; if
+  refresh fails, the router opens `/sign-in?return_to=...` with the
+  user's pending action preserved.
 - **API keys** — `pk_live_` (publishable, origin-pinned, read-only) and
-  `sk_live_` (secret), creatable from the dashboard.
+  `sk_live_` (secret), creatable from the dashboard. `sk_mcp_*` is not
+  yet exposed (arrives in Phase 2 alongside the CLI).
+- **Settings → Keys page**: list, create, rotate, revoke per
+  [`DESIGN.md` §4.5](./DESIGN.md); displays last-4 + host + device +
+  last-used + coarse IP. Revocation propagates in ≤2s.
 - **`<nlq-data>` element** v0 — `goal=` and `db=` attributes;
   templates: `table`, `list`, `kv`. (`card-grid`, `chart` deferred to
   Phase 2.) Distributed via `elements.nlqdb.com` → R2.
@@ -243,10 +277,38 @@ ecosystem. Aligns with P2 (Agent Builder) success criteria in
   (`nlq new "..."`, bare `nlq "..."`); explicit-path commands
   (`nlq db create`, `nlq query`, `nlq chat`) second. Distribution:
   `curl | sh`, Homebrew tap, npm shim.
+  - **Auth surface** per [`DESIGN.md` §3.3 and §4.3](./DESIGN.md):
+    `nlq login` (device-code), `nlq logout`, `nlq whoami`, `nlq keys
+    list|rotate|revoke`. Anonymous-first: bare `nlq "..."` mints an
+    anonymous token *before* any sign-in prompt.
+  - **Credential storage**: `github.com/zalando/go-keyring` (OS keychain
+    on all three platforms). Fallback: AES-GCM encrypted file at
+    `~/.config/nlqdb/credentials.enc` with a machine-bound key when the
+    keychain isn't available. Plaintext storage is never an option —
+    the plaintext code path doesn't exist in the binary.
+  - **Silent access-token refresh**: one HTTP middleware; 401 triggers
+    refresh-and-retry once, then re-runs the device flow in-place if the
+    refresh fails. No user-visible "session expired" state.
+  - **CI mode**: `NLQDB_API_KEY` env var short-circuits all of the above
+    and is the only supported path for scripts.
 - **MCP server** — `@nlqdb/mcp`, published to npm. Tools: `nlqdb_query`,
   `nlqdb_list_databases`, `nlqdb_describe`. (No `nlqdb_create_database`
   tool — DBs materialize on first reference per [`DESIGN.md` §0.1](./DESIGN.md).)
-  One-click installers for Claude Desktop, Cursor, Zed.
+  - **`nlq mcp install <host>`** ([`DESIGN.md` §3.4](./DESIGN.md)): one
+    command does sign-in (if needed), mints `sk_mcp_<host>_<device>_…`,
+    patches the host's config file at the right path, runs a self-check.
+    Targets: Claude Desktop, Cursor, Zed, Windsurf, VS Code, Continue.
+  - **Website one-click install**: `app.nlqdb.com/install/<host>` mints
+    the scoped key server-side and returns an `nlqdb://install?…` deep
+    link the CLI handles. If the CLI isn't installed, the page offers a
+    short-lived helper binary that does only the config-file write.
+  - **Per-host DB isolation**: DBs created via MCP are tagged with
+    `(mcp_host, device_id)` in D1 and hidden from other hosts by default,
+    per [`DESIGN.md` §3.4](./DESIGN.md). Promote-to-account is a one-click
+    dashboard action.
+  - **No DB driver in `@nlqdb/mcp`'s lockfile** — CI fails the build if
+    `pg`, `postgres`, `redis`, or any engine client appears, per the
+    structural invariant in [`DESIGN.md` §4.4](./DESIGN.md).
 - **`<nlq-action>` element** — write counterpart to `<nlq-data>`. Form
   field names are inferred into columns automatically.
 - **CSV upload** in the chat — unlocks P3 (Analyst) per

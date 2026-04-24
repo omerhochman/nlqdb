@@ -32,6 +32,30 @@ every tool we ship. If a change violates one of these, it doesn't ship.
   MCP works with one env var.
 - **Effortless UX.** Zero modals. Zero "are you sure" dialogs except for destructive
   actions. Keyboard-first. The chat is the product; everything else is a disclosure.
+- **Seamless auth — one identity, four surfaces, zero friction.** Authentication is
+  a core feature, not a gate. Concretely, and non-negotiably:
+  - **No login wall before first value.** Every surface (web, CLI, MCP, embed)
+    produces a working answer before asking who you are. Anonymous-mode is the
+    default path, not a footnote (see §4.1).
+  - **One sign-in covers everything.** A single Better Auth identity is shared
+    across `nlqdb.com`, `app.nlqdb.com`, the `nlq` CLI, and every MCP host. Signing
+    in once anywhere signs you in everywhere on that device. No separate CLI
+    password, no separate MCP token to copy-paste, no second account.
+  - **Tokens refresh silently.** The user never sees a 401, never sees "session
+    expired", never has to re-run a command because a token aged out. Access
+    tokens are short-lived (1h) and refreshed in the background; the refresh
+    token lives in the OS keychain. If the refresh fails, the surface re-opens
+    the browser flow automatically and resumes the original command.
+  - **MCP install is one command.** `nlq mcp install <host>` does sign-in (if
+    needed), provisions a host-scoped key, and patches the host's config. The
+    user never sees the word "token" or "API key" unless they explicitly ask.
+  - **Credentials are never in plaintext files.** CLI and MCP credentials live
+    in the OS keychain (macOS Keychain / Windows Credential Manager / libsecret).
+    `~/.config/nlqdb/config.toml` holds only non-secret preferences. Env-var
+    overrides (`NLQDB_API_KEY`) exist for CI but are never the default path.
+  - **Revocation is instant and visible.** Every token on every device appears
+    in the dashboard with last-used timestamp. Revoke = one click; the affected
+    surface re-prompts for sign-in on the next call, seamlessly.
 - **Simple.** If two engineers disagree on the design of a feature, we ship the simpler
   one and revisit only when a real user is blocked.
 - **Fast.** p50 query latency < 400ms (cached path). p95 < 1.5s (LLM path with cache
@@ -359,17 +383,116 @@ The default-path commands (top block) cover ~95% of usage. The explicit-path
 commands (bottom block) exist because power users are first-class — but they
 are not the on-ramp.
 
+**Auth flow** (per §0 "Seamless auth"; full spec in §4.3):
+
+1. **Anonymous-first.** `nlq new "..."` and bare `nlq "..."` work with zero
+   setup. The CLI mints an anonymous token (same 72h window as the web, §4.1)
+   and caches it in the OS keychain under `nlqdb://anonymous`. The user gets
+   an answer before being asked to sign in.
+2. **Sign-in on adopt, not on first call.** On the first successful query the
+   CLI prints one line: *"Saved as anonymous. Run `nlq login` within 72h to
+   keep it."* — no prompt, no blocker. `nlq login` uses the **OAuth 2.0 Device
+   Authorization Grant** against Better Auth: CLI POSTs `/v1/auth/device`,
+   prints a short user code, and opens the browser to `nlqdb.com/device`.
+   On approval, the CLI polls `/v1/auth/device/token` and on success:
+   - Adopts the anonymous DB(s) into the account (one row of SQL per §4.1).
+   - Stores a **refresh token** (90d lifetime) in the OS keychain under
+     `nlqdb://session/<email>`.
+   - Caches a short-lived **access token** (1h, JWT) in-process only.
+3. **Silent refresh.** Every HTTPS call attaches the access token. On `401
+   token_expired`, the CLI transparently exchanges the refresh token for a new
+   access token and retries the original request — once. The user never sees
+   the 401.
+4. **Re-auth recovery.** If the refresh token is revoked or expired, the next
+   CLI invocation prints *"Session expired. Re-opening browser…"* and
+   re-runs the device flow in-place, then resumes the original command. No
+   lost keystrokes.
+5. **`nlq logout`** wipes the keychain entry. `nlq whoami` prints the signed-in
+   identity + device name + last-used timestamp.
+6. **CI / headless mode.** `NLQDB_API_KEY=sk_live_...` takes precedence over
+   any session; when set, `nlq login` is skipped entirely and no keychain
+   access is attempted. This is the *only* env-var auth path — no bearer-token
+   env var, no long-lived session file to copy.
+7. **Credential storage is always the OS keychain** — `zalando/go-keyring` on
+   all three platforms (Keychain / Credential Manager / libsecret). If the
+   keychain is unavailable (e.g. a headless Linux box without a session bus),
+   the CLI falls back to an AES-GCM-encrypted file at
+   `~/.config/nlqdb/credentials.enc` keyed by a machine-bound key, and prints
+   a one-line warning. Plaintext storage is never an option.
+
+This makes the CLI's auth behavior indistinguishable from "no auth" on the
+happy path and indistinguishable from "auth done right" on the bad path.
+
 ### 3.4 MCP server — `@nlqdb/mcp`
 
 Distributed via `npx -y @nlqdb/mcp`. Same code path as the HTTP API — see
 [`PLAN.md` §1.5](./PLAN.md). Tools exposed:
-- `nlqdb_create_database(name)`
-- `nlqdb_query(database, q)`
+- `nlqdb_query(database, q)` — create-on-reference per §0.1, so there is no
+  `nlqdb_create_database` tool on the default path.
 - `nlqdb_list_databases()`
 - `nlqdb_describe(database)` — returns inferred schema in NL
 
-Auth via env var `NLQDB_API_KEY` or the host's secret store. One-click install
-buttons on the website for Claude Desktop, Cursor, Zed, Windsurf, VS Code.
+**Auth flow** (per §0 "Seamless auth"; full spec in §4.3 and §4.4):
+
+The MCP server is a thin adapter over the HTTP API, so it never talks to
+Postgres directly and never holds a database credential. Its only job is to
+forward the caller's identity to `api.nlqdb.com`. Three installation paths,
+all seamless:
+
+1. **`nlq mcp install <host>`** (recommended, 95% of users). One command does
+   everything:
+   a. If the user isn't signed in on this machine, triggers the `nlq login`
+      device-code flow (§3.3).
+   b. Calls `POST /v1/keys` with `{ scope: "mcp", host: "<host>",
+      device_id: <hash-of-machine-id> }` to mint a **host-scoped API key**
+      (`sk_mcp_<host>_...`, see §4.1). The key is displayed to the user
+      exactly once in the terminal, and then written directly to the host's
+      config file at the correct path:
+      - Claude Desktop: `~/Library/Application Support/Claude/config.json` (macOS)
+      - Cursor: `~/.cursor/mcp.json`
+      - Zed: `~/.config/zed/settings.json`
+      - Windsurf, VS Code, Continue: analogous per-host paths.
+   c. The CLI validates the write by starting the MCP server once and issuing
+      a self-check `nlqdb_list_databases()` call. Green check on success.
+   d. Total user-visible steps: one command, one browser approval, done.
+2. **Website one-click install button** (for users who reach us via the web
+   first). `app.nlqdb.com/install/<host>` generates a host-scoped key
+   server-side, then redirects to a `nlqdb://install?token=...&host=...` deep
+   link. The locally-installed CLI (or a short-lived helper binary if the CLI
+   isn't installed yet) handles the write. Same end state as path 1, with the
+   sign-in happening in the browser instead of triggered from the CLI.
+3. **Manual `NLQDB_API_KEY=...`** (power users, CI, air-gapped boxes). The
+   env var is honored, takes precedence over any config file, and is the
+   documented escape hatch for scripted setups. Users generate the key in the
+   dashboard; the same `sk_mcp_` scoping rules apply.
+
+**Key scoping and per-host isolation** (resolves the "same key for all agents"
+concern — agents do **not** share credentials):
+
+- Each `sk_mcp_<host>_<device>_...` key carries claims: `{ user_id, mcp_host,
+  device_id, created_at, last_used_at }`. The dashboard lists every key with
+  its host + device + last-used timestamp.
+- DBs created through an MCP call are tagged with the key's `(mcp_host,
+  device_id)` and are by default visible only to that host + device tuple
+  under that user. A user can promote a DB to account-wide from the dashboard
+  (one click), or pin a DB to a specific host.
+- Revocation at the dashboard is instant: the next tool call returns `401
+  key_revoked`, which the MCP server surfaces to the host LLM as a tool-use
+  error that says *"Sign in again: run `nlq mcp install <host>`."* The host
+  prompts the user; re-install is a single command.
+
+**Transport auth**: the MCP server authenticates **to the API** with the
+scoped key. It does **not** accept arbitrary inbound connections — it speaks
+MCP over stdio to its host process only, which is the MCP security model.
+There is no network listener on the user's machine.
+
+**Downstream DB auth** (MCP → API → Postgres): the MCP server never sees a
+Postgres connection string. The edge API in Workers owns the connection pool;
+per-tenant credentials are derived from the caller's identity via a signed
+internal JWT that never leaves the Cloudflare network. See §4.4.
+
+One-click install buttons on the website for Claude Desktop, Cursor, Zed,
+Windsurf, VS Code (all resolve to path 2 above).
 
 ### 3.5 The embeddable HTML element — `<nlq-data>`
 
@@ -460,12 +583,21 @@ account. **One row in the schema, zero conditional code.**
 **Session storage**: Cloudflare Workers KV (free: 100k reads/day, 1k writes/day).
 Sessions are JWT-signed for read; KV is the revocation store.
 
-**API keys**: separate from sessions. Two key types:
-- `pk_live_...` — publishable, browser-safe, read-only, per-DB, origin-pinned.
-- `sk_live_...` — secret, server-only, full scope. Rotated via dashboard or CLI.
+**API keys**: separate from sessions. Three key types (not two — MCP scoping
+is first-class):
+- `pk_live_...` — publishable, browser-safe, **read-only**, per-DB,
+  origin-pinned via the key's `allowed_origins` list. Used by `<nlq-data>`.
+- `sk_live_...` — secret, server-only, full scope on the user's DBs. Used by
+  backend services and the HTTP API. Rotated via dashboard or CLI.
+- `sk_mcp_<host>_<device>_...` — secret, MCP-scoped; identical to `sk_live_`
+  for query permissions but carries `(mcp_host, device_id)` claims used for
+  per-host DB isolation (§3.4). One per host+device combination; revokable
+  independently.
 
 Keys are stored hashed (Argon2id). No plaintext key ever leaves the dashboard
-after creation.
+after creation. The **last 4 characters** of every key are stored in
+cleartext alongside the hash for display in the dashboard's key list
+("sk_live_…a4f7 · last used 3m ago · Cursor on macbook-air").
 
 ### 4.2 Authorization model
 
@@ -477,6 +609,139 @@ Tiny on purpose:
 That's the entire model in Phase 1. Roles/RBAC come in Phase 2 only if a paying
 customer asks twice.
 
+### 4.3 Session lifecycle across surfaces
+
+One identity, projected onto four surfaces. Per the "Seamless auth" core
+value (§0), the lifecycle is identical regardless of entry point — what
+differs is only the front-end of the flow.
+
+| Surface | Initial auth | Stored where | Access token TTL | Refresh |
+|---|---|---|---|---|
+| Web (`nlqdb.com`, `app.nlqdb.com`) | Magic link / passkey / GitHub / Google | `__Host-session` HttpOnly cookie (JWT) | 1h | Rotating refresh in KV, 30d sliding |
+| CLI (`nlq`) | Device-code flow (`nlq login`) | OS keychain (refresh), in-memory (access) | 1h | 90d refresh, rotated on every use |
+| MCP server | `nlq mcp install <host>` → scoped key | Host's config file (key only); no session | n/a (long-lived key) | Key rotation, not refresh |
+| Embed element | `pk_live_` publishable key | Inline in HTML | n/a (long-lived key) | Key rotation, not refresh |
+
+**The device-code flow** (used by `nlq login` and by the optional
+"authenticate this terminal" flow for embed editing):
+
+```
+CLI                         API (Workers)                Browser
+ │                              │                           │
+ │─POST /v1/auth/device────────►│                           │
+ │                              │                           │
+ │◄─{user_code, device_code,────│                           │
+ │   verification_uri, interval}│                           │
+ │                              │                           │
+ │  print "Go to nlqdb.com/device, enter: ABCD-1234"        │
+ │  open browser ─────────────────────────────────────────► │
+ │                              │◄─── user approves ────────│
+ │                              │                           │
+ │─POST /v1/auth/device/token──►│                           │
+ │  (poll every `interval` s)   │                           │
+ │                              │                           │
+ │◄─{access_token, refresh_token,                            │
+ │   expires_in: 3600}──────────│                           │
+ │                              │                           │
+ │  write refresh_token to OS keychain                       │
+ │  hold access_token in memory                              │
+```
+
+**Refresh protocol** (shared by web and CLI, different storage):
+
+```
+any surface                  API
+ │                            │
+ │─call with access_token────►│
+ │                            │
+ │◄─ 401 token_expired ───────│
+ │                            │
+ │─POST /v1/auth/refresh─────►│  { refresh_token }
+ │                            │
+ │◄─{ access_token, refresh_token (rotated), expires_in }  (on success)
+ │                            │
+ │  retry original call, once (idempotent; see §0 invariants)
+```
+
+If refresh fails (`invalid_grant`), the surface **automatically re-initiates
+the original flow** — the web app opens the sign-in page with a `return_to`
+param; the CLI re-runs the device flow and resumes the original command.
+The user never sees a bare 401.
+
+**Revocation** is a write to the KV revocation set, keyed by `jti`
+(JWT ID) for sessions and by key-hash-prefix for API keys. Edge checks
+membership on every request; the check is free on cache hits and ≤2ms on
+misses (KV read).
+
+### 4.4 Service-to-service auth (how surfaces talk to each other)
+
+The call graph in production:
+
+```
+[web browser | CLI | MCP client] ──► api.nlqdb.com (Workers edge)
+                                            │
+                                            │ signed internal JWT
+                                            │ (includes user_id, db_id, scope)
+                                            ▼
+                            [Connection Pool | Plan Cache | LLM]
+                                            │
+                                            ▼
+                            [Neon Postgres | Upstash Redis | …]
+```
+
+Rules (all bullet-proof-by-design per §9):
+
+- **The edge is the only component that sees external credentials.** It
+  terminates the `Authorization: Bearer ...` header, resolves the caller to a
+  `(user_id, db_scope, rate_limit_bucket)` tuple, and signs a short-lived
+  (30s) **internal JWT** using a Workers-only secret for all downstream calls.
+- **No other component trusts the caller.** The LLM router, plan cache, and
+  connection pool all verify the internal JWT's signature before acting. A
+  leaked external key therefore has the blast radius of the key's scope —
+  *never* the blast radius of the entire system.
+- **The MCP server does not hold DB credentials.** It signs its outbound
+  request to `api.nlqdb.com` with its `sk_mcp_...` key. It has no Postgres
+  driver, no connection string, no way to bypass the edge. This is enforced
+  structurally: the `@nlqdb/mcp` npm package has zero database-driver
+  dependencies in its lockfile, and CI refuses to build it with any added.
+- **The Postgres pool is at the edge, keyed by tenant.** Each user's DBs live
+  on a per-tenant schema inside a shared Neon cluster. The internal JWT
+  binds the caller to their schema via `SET LOCAL search_path` + Neon role
+  scoping; there is no branch in app code that could "pick the wrong tenant"
+  (per §9).
+- **The embed element uses `pk_live_` keys only.** These keys are marked
+  `read-only = true` and `origin-pinned = true` in D1; the edge rejects any
+  mutating call that presents a publishable key, *before* the plan is
+  generated. Writes from the browser must use `<nlq-action>`, which routes
+  through a signed short-lived write-token issued after same-origin CSRF
+  verification (Phase 2).
+
+### 4.5 Key rotation, revocation, and device management
+
+Seamless-auth (§0) requires this be instant and visible:
+
+- **Dashboard → Keys** lists every active credential: `pk_live_…`, `sk_live_…`,
+  every `sk_mcp_<host>_<device>_…`, plus every web session and every CLI
+  device. Columns: type, host, device, created, last-used, IP (coarse),
+  user-chosen label.
+- **Revoke** is one click per row. Effect propagates in ≤2s (time to flip
+  the KV revocation bit + edge cache invalidation). The affected surface
+  gets `401 key_revoked` on its next call and enters the seamless re-auth
+  path (§4.3) if it's a session, or surfaces a clear error if it's a
+  dedicated key.
+- **Rotate** (for `sk_live_` and `sk_mcp_`) issues a new key, marks the old
+  one as deprecated (60d grace), and emits a webhook the user can wire into
+  their deployment. CLI: `nlq keys rotate <id>`.
+- **Global "sign everyone out"** is one click: invalidates all sessions, all
+  device refresh tokens, and all `sk_mcp_` keys for the account. `sk_live_`
+  and `pk_live_` keys are left alone (they're the user's own production
+  credentials; rotate separately).
+- **Email + in-app notification** on every key creation, every rotation,
+  every revocation, every new-device sign-in. Template list in §5.1.
+- **No plaintext-key retrieval path exists.** If the user lost their
+  `sk_live_`, they rotate. We refuse to add a "reveal key" button because
+  that's a store-plaintext foot-gun; refusing to build it is the feature.
+
 ---
 
 ## 5. Email, content & marketing
@@ -486,7 +751,9 @@ customer asks twice.
 - Magic links, password-less verification (we don't even have passwords, but
   email verification on first sign-in).
 - Billing alerts ("you've used 80% of your monthly quota").
-- Critical security alerts ("new device signed in").
+- Critical security alerts per §4.5 — one template each for: new-device
+  sign-in (CLI or web), new MCP host registered, API key created, API key
+  rotated, API key revoked, global sign-out.
 - DB-paused notification ("your `orders` DB will pause in 48h unless queried").
 
 Templates built with **React Email** (lives in our monorepo, type-shared with
@@ -1138,17 +1405,30 @@ shown only when materially different.
 
 ### 14.3 CLI (`nlq`)
 
-**Default path** (one line, no setup):
+**Default path** (one line, no setup, no sign-in until you want it):
 
 ```bash
 $ nlq new "an orders tracker"
 ✓ Ready. Try: nlq "add an order: alice, latte, $5.50, just now"
+ℹ Saved as anonymous. Run `nlq login` within 72h to keep it. (§3.3, §4.3)
 
 $ nlq "add an order: alice, latte, $5.50, just now"
 ✓ Added. orders-tracker-a4f now has 1 row.
 ```
 
 That's it. The DB exists. There is no `nlq db create` step the user had to know about.
+
+**Adopting the anonymous DB** (seamless per §0 "Seamless auth"):
+
+```bash
+$ nlq login
+→ Enter ABCD-1234 at https://nlqdb.com/device  (browser opens)
+✓ Signed in as maya@example.com. Adopted 1 anonymous DB: orders-tracker-a4f.
+```
+
+The refresh token is written to the macOS Keychain (or libsecret / Credential
+Manager on other OSes). Every subsequent call silently refreshes the access
+token as needed — the user never sees "session expired".
 
 **Day-2 ops** (still one line each):
 
@@ -1172,12 +1452,22 @@ $ nlq connection finance     # raw Postgres URL — drop into your own app
 
 ### 14.4 MCP server (`@nlqdb/mcp`)
 
-**Install** (one line per host):
+**Install** (one line per host; signs you in if needed, mints a host-scoped
+key, writes the host's config — all per §3.4 and §4.3):
 
 ```bash
-$ nlq mcp install claude     # patches Claude Desktop's config
-$ nlq mcp install cursor     # same for Cursor
-$ nlq mcp install zed        # same for Zed
+$ nlq mcp install claude
+→ Not signed in on this machine. Opening browser… enter AB12-CD34 at nlqdb.com/device
+✓ Signed in as jordan@example.com.
+✓ Minted sk_mcp_claude_macbook-pro_…e71f (visible at nlqdb.com/settings/keys).
+✓ Wrote ~/Library/Application Support/Claude/config.json.
+✓ Self-check: nlqdb_list_databases() returned []. Restart Claude Desktop to pick it up.
+
+$ nlq mcp install cursor     # already signed in — skips step 1
+✓ Minted sk_mcp_cursor_macbook-pro_…9a2c. Wrote ~/.cursor/mcp.json.
+
+$ nlq mcp install zed        # ditto
+✓ …
 ```
 
 **Usage from inside the host LLM** (the agent doesn't need to know about
