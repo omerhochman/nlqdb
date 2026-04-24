@@ -726,11 +726,17 @@ nlqdb/actions/
 - **Auto-detects language** from `package.json` / `go.mod` / `pyproject.toml`.
   No `language:` input.
 - **Concurrency-safe** — cancels in-flight runs on the same ref.
-- **Cached aggressively** — pnpm store, Go build cache.
+- **Cached aggressively** — Bun install cache (`~/.bun/install/cache`),
+  `bun.lockb`, Go build cache, uv cache (`~/.cache/uv`).
 - **Implicit matrix** — Ubuntu + repo's pinned version by default. Opt-in
   via `matrix-os:` / `matrix-versions:`.
 - **Fast-fail order:** lint → typecheck → test → build → scan → release.
   Cheapest signal first.
+- **Lint/format stack** (IMPLEMENTATION §2.8): **Biome** for JS/TS/JSON/CSS
+  (single binary, no Prettier+ESLint duo); **gofumpt** + **golangci-lint**
+  for Go; **ruff** for Python. Devs run the same commands locally via
+  **lefthook** pre-commit hooks; CI is the backstop, not the first line
+  of defense.
 - **Free for public repos** — $0/mo per §7.
 
 Inputs: `package-manager` (optional), `run-release` (default false),

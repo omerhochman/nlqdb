@@ -88,6 +88,35 @@ Store all above in **GitHub Actions secrets** (org + repo) and
 per-dev `.envrc` (gitignored). Every repo has one `.env.example` listing
 variable names — no values, ever.
 
+### 2.8 Dev toolchain (zero-config — `scripts/bootstrap-dev.sh`)
+
+A single script stands up every local tool, pulls Ollama models, seeds
+`.envrc` from `.env.example`, installs workspace deps, and wires git
+hooks. A dev with a clean machine runs it once.
+
+| Purpose                        | Tool                              |
+| :----------------------------- | :-------------------------------- |
+| JS/TS runtime + package mgr    | **Bun** (`bun@1.3+`)              |
+| Python envs + tools            | **uv**                            |
+| Go CLI                         | Go 1.24+                          |
+| JS/TS/JSON/CSS format + lint   | **Biome**                         |
+| Go format                      | **gofumpt**                       |
+| Go lint                        | **golangci-lint**                 |
+| Python format + lint           | **ruff**                          |
+| Git hooks (pre-commit/push)    | **lefthook**                      |
+| Cloud CLIs                     | wrangler (via Bun), flyctl, aws, stripe, gh |
+| Local LLM                      | Ollama (`llama3.2:3b`, `qwen2.5:7b`) |
+| Env / secrets loader           | direnv                            |
+
+Rationale: one binary per job, all Rust- or Go-compiled, sub-second
+runtime budget on a monorepo we expect to reach 200k+ LOC. Prettier +
+ESLint + husky are explicitly out — they are slow enough that devs
+disable them, and Biome + lefthook cover the same surface in a single
+install with ~10× the throughput.
+
+Commit-message policy: **Conventional Commits** (enforced by lefthook
+`commit-msg` hook; same list of types as release-please / semantic-release).
+
 **Total Day-1 spend: $0.** Recurring: ~$7/mo amortized domains.
 
 ---
@@ -97,9 +126,23 @@ variable names — no values, ever.
 **Theme:** the stack stands up end-to-end for one developer. No traffic.
 
 - DNS per §2.1.
-- Monorepo `nlqdb/nlqdb` with pnpm workspaces: `apps/web` (Astro),
-  `apps/api` (Workers), `packages/{sdk, elements, mcp, llm,
-  auth-internal}`, `cli/` (Go).
+- Monorepo `nlqdb/nlqdb` with **Bun workspaces** (`bun@1.3+`, pinned via
+  `package.json#packageManager`): `apps/web` (Astro), `apps/api`
+  (Workers), `packages/{sdk, elements, mcp, llm, auth-internal}`,
+  `cli/` (Go). Python tooling (ad-hoc scripts, notebooks) managed by
+  **uv** — no `pip` / `venv` ad-libbing.
+- **Formatter + linter + git hooks:**
+  - [Biome](https://biomejs.dev) — single binary formatter + linter for
+    JS/TS/JSON/CSS/Astro. Config at `biome.json`. Replaces
+    Prettier + ESLint end-to-end.
+  - **gofumpt** + **golangci-lint** for the Go CLI.
+  - **ruff** (format + lint) for any Python.
+  - [**lefthook**](https://lefthook.dev) wires them into `pre-commit`
+    (fix-and-stage), `commit-msg` (Conventional Commits), `pre-push`
+    (whole-repo Biome + `go vet`). Config at `lefthook.yml`.
+  - CI runs the same Biome / golangci-lint / ruff commands via the
+    reusable workflow (§13 design) — hooks are the first line of
+    defense, CI is the backstop.
 - Reusable CI per `DESIGN §13`: `nlqdb/actions@v1`, 4-line consumer.
 - Cloudflare Pages + Workers + KV + D1 + R2 provisioned via wrangler
   from CI.

@@ -1,0 +1,30 @@
+{
+  "name": "nlqdb",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Natural-language databases. Ship data-driven features with an English goal, not a query.",
+  "type": "module",
+  "packageManager": "bun@1.3.13",
+  "engines": {
+    "bun": ">=1.3.0",
+    "node": ">=20.18.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "format": "biome format --write",
+    "lint": "biome lint",
+    "check": "biome check",
+    "fix": "biome check --write",
+    "check:go": "gofumpt -l . && go vet ./... && golangci-lint run",
+    "check:py": "ruff check && ruff format --check",
+    "check:all": "bun run check && bun run check:go && bun run check:py",
+    "hooks:install": "lefthook install",
+    "hooks:run": "lefthook run pre-commit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0"
+  }
+}

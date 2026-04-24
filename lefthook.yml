@@ -1,0 +1,77 @@
+# Git hooks for nlqdb. Installed by `scripts/bootstrap-dev.sh`
+# (which runs `lefthook install` after lefthook is on PATH).
+#
+# Keep hooks FAST and FOCUSED — they run on every commit. Move slow
+# checks (full type-check, full test suite, coverage) into CI instead.
+
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      # Biome formats + lints staged JS/TS/JSON/CSS/Astro files and
+      # writes fixes back. If anything still fails after autofix, the
+      # commit aborts so you see the error rather than committing broken
+      # code.
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,css,astro,svelte,vue}"
+      run: bun x biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+
+    gofmt:
+      # gofumpt is a stricter superset of gofmt. Running on staged .go
+      # files only keeps the hook under a second on large repos.
+      glob: "*.go"
+      run: gofumpt -w {staged_files}
+      stage_fixed: true
+
+    golangci-lint:
+      # Only lint packages whose files actually changed; golangci-lint
+      # understands file paths and figures out the surrounding package.
+      glob: "*.go"
+      run: golangci-lint run --fix --fast-only {staged_files}
+      stage_fixed: true
+
+    ruff:
+      # Python: ruff is formatter + linter in one binary. Auto-fixes
+      # safe rules, formats, and blocks commit on unsafe issues.
+      glob: "*.py"
+      run: |
+        ruff check --fix --exit-non-zero-on-fix {staged_files} && \
+        ruff format {staged_files}
+      stage_fixed: true
+
+    shellcheck:
+      # Catch common shell-script bugs before they hit CI. Only runs
+      # when a .sh file is staged.
+      glob: "*.sh"
+      run: shellcheck {staged_files}
+
+commit-msg:
+  commands:
+    # Enforce Conventional Commits. Matches:
+    #   feat: …  |  fix(scope): …  |  chore!: breaking change …
+    # Full spec: https://www.conventionalcommits.org/
+    conventional-commit:
+      run: |
+        grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9 \-]+\))?!?: .{1,}$' {1} || {
+          echo "Commit message must follow Conventional Commits:"
+          echo "  <type>(<optional scope>): <subject>"
+          echo "  types: feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
+          echo "Example: feat(auth): add device-code flow"
+          exit 1
+        }
+
+pre-push:
+  parallel: true
+  commands:
+    biome-all:
+      # Whole-repo biome check; fast enough to run on push (sub-second
+      # on a monorepo of our target size).
+      run: bun x biome check
+
+    go-vet:
+      glob: "*.go"
+      run: go vet ./...
+
+# Skip hooks for a single commit with:  LEFTHOOK=0 git commit -m "…"
+# Never skip via --no-verify — it hides failures. If a hook is wrong,
+# fix the hook.
