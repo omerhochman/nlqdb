@@ -131,13 +131,21 @@ CLI UX rules:
 We ship an MCP server from day one because LLM agents *are* the second user.
 
 Tools exposed:
-- `nlqdb_create_database(name)` → handle
-- `nlqdb_query(database, q)` → `{ answer, data, trace }`
+- `nlqdb_query(database, q)` → `{ answer, data, trace }` — creates the DB on
+  first reference per [`DESIGN.md` §0.1](./DESIGN.md), so no public
+  `nlqdb_create_database` tool.
 - `nlqdb_list_databases()` → list
+- `nlqdb_describe(database)` → inferred schema in NL
 
-The MCP server is the same code path as the HTTP API — not a parallel implementation. It's a thin adapter. Auth via the same API key, pulled from env var `NLQDB_API_KEY` or the MCP client's secret store.
+The MCP server is the same code path as the HTTP API — not a parallel implementation. It's a thin adapter with **no database driver in its dependency tree** (enforced by CI, per [`DESIGN.md` §4.4](./DESIGN.md)).
 
-Install: `npx -y @nlqdb/mcp` or a one-click button for Claude Desktop, Cursor, etc.
+**Auth** is a first-class part of the MCP surface, not an afterthought. Full spec in [`DESIGN.md` §3.4, §4.3, §4.4](./DESIGN.md). Summary:
+
+- Install path: `nlq mcp install <host>` — one command that (a) runs the CLI device-code sign-in if needed, (b) mints a host-scoped `sk_mcp_<host>_<device>_…` key, (c) patches the host's config file, (d) runs a self-check.
+- Per-host, per-device isolation: each host gets its own key and its own DB namespace by default — agents do **not** share credentials.
+- `NLQDB_API_KEY` env var remains the escape hatch for CI / air-gapped boxes.
+
+Install: `nlq mcp install <host>` is the default; `npx -y @nlqdb/mcp` remains for users who want to wire things manually; website one-click install buttons handle the sign-in in-browser.
 
 ### 1.6 Phase 1 backend (the shim)
 
@@ -146,7 +154,7 @@ Keep it embarrassingly simple. This is not the product yet.
 - **One shared Postgres** (managed: Neon or Supabase free tier). Every user DB is a Postgres schema. No per-user VMs.
 - **LLM layer:** Claude (primary) with a structured tool-use loop. The loop: parse intent → resolve schema context from pgvector embeddings of table/column names → emit SQL → execute → summarize. See §3 for the robust version.
 - **Schema inference on write.** First insert creates columns. Types are inferred and *widened* over time, never narrowed without an explicit migration.
-- **Auth:** Clerk or WorkOS AuthKit (both have generous free tiers and a real API, not UI-first). Not Auth0 (pricing cliff). Not roll-our-own (reinvent wheel §6 lists what we *should* reinvent; auth is not it).
+- **Auth:** **Better Auth** (TypeScript, OSS, MIT). Full rationale in [`DESIGN.md` §4](./DESIGN.md); short version — no per-MAU pricing cliff, OSS-to-OSS alignment, TypeScript types shared with our Drizzle schema. This revises the Phase-0 draft that named Clerk/WorkOS. Methods: magic link, passkey, GitHub OAuth, Google OAuth. Not Auth0 (pricing cliff). Not roll-our-own (auth is not a wheel we reinvent — we use the library, we own the UI). Device-code flow for the CLI and MCP install is first-class, not a bolt-on — see [`DESIGN.md` §4.3](./DESIGN.md).
 - **Rate limits:** per-API-key token bucket in Redis (Upstash — free tier, HTTP API, no persistent connections).
 - **Observability:** trace IDs propagate across UI → API → LLM → DB. One OTEL collector, ship to Grafana Cloud free tier in Phase 1.
 
