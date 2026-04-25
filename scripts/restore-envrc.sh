@@ -8,9 +8,9 @@
 #   ./scripts/verify-secrets.sh     # should be all-green
 #
 # Expects the backup at
-# ~/Library/Mobile Documents/com~apple~CloudDocs/nlqdb-backups/envrc.age
-# (the default iCloud Drive location). Override with NLQDB_BACKUP_DIR
-# for non-Mac or custom sync folders.
+# ~/Library/Mobile Documents/com~apple~CloudDocs/nlqdb-backups/.envrc.age
+# (the default iCloud Drive location, written by scripts/backup-envrc.sh).
+# Override with NLQDB_BACKUP_DIR for non-Mac or custom sync folders.
 
 set -euo pipefail
 
@@ -18,7 +18,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 BACKUP_DIR="${NLQDB_BACKUP_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/nlqdb-backups}"
-BACKUP_FILE="${BACKUP_DIR}/envrc.age"
+BACKUP_FILE="${BACKUP_DIR}/.envrc.age"
 
 say()  { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓ \033[0m %s\n' "$*"; }
@@ -29,11 +29,11 @@ command -v age >/dev/null 2>&1 || fail "age not installed — run scripts/bootst
 
 if [[ ! -f "$BACKUP_FILE" ]]; then
   warn "No backup at: $BACKUP_FILE"
-  warn "If this is a new machine, make sure you ran \`git pull\` and the backup"
-  warn "was committed from the source machine. If you never ran"
-  warn "scripts/backup-envrc.sh, there is nothing to restore — populate .envrc"
-  warn "by hand, then run scripts/backup-envrc.sh + commit the resulting"
-  warn ".envrc.age so the next machine can restore from it."
+  warn "If this is a new machine, wait for iCloud Drive to finish syncing the"
+  warn "nlqdb-backups folder, or override with NLQDB_BACKUP_DIR."
+  warn "If you never ran scripts/backup-envrc.sh, there is nothing to restore"
+  warn "— populate .envrc by hand, then run scripts/backup-envrc.sh from the"
+  warn "source machine to seed the backup for next time."
   exit 1
 fi
 

@@ -220,31 +220,27 @@ gh pr list                      # what's open
 
 ```bash
 git clone git@github.com:nlqdb/nlqdb.git && cd nlqdb
-scripts/bootstrap-dev.sh        # installs tools, creates stub .envrc
-scripts/restore-envrc.sh        # prompts for passphrase, decrypts .envrc.age → .envrc
+scripts/bootstrap-dev.sh        # tools + stub .envrc from .env.example
+scripts/restore-envrc.sh        # decrypts iCloud backup over the stub
 ./scripts/verify-secrets.sh     # should be all-green
 ```
 
-**`.envrc.age`** is the encrypted backup of `.envrc`, committed to the
-repo root. It's produced by `scripts/backup-envrc.sh`, which uses age
-passphrase mode (scrypt KDF at cost 2^18). Safe to commit to a public
-repo only if the passphrase is strong (20+ mixed characters, not
-reused, not dictionary-derivable). Refresh it any time `.envrc`
-changes:
+**Encrypted `.envrc` backup lives outside the repo.** `.envrc.age` is
+gitignored — the repo history was rewritten on 2026-04-25 to remove a
+previously-committed copy; do not re-introduce one. Default location:
+`~/Library/Mobile Documents/com~apple~CloudDocs/nlqdb-backups/.envrc.age`
+(iCloud Drive). Produced by `scripts/backup-envrc.sh` using age
+passphrase mode (scrypt KDF, cost 2^18). Refresh after any `.envrc`
+change:
 
 ```bash
-scripts/backup-envrc.sh         # encrypts .envrc → .envrc.age
-git add .envrc.age && git commit -m "chore: refresh encrypted .envrc backup"
+scripts/backup-envrc.sh         # encrypts .envrc → $NLQDB_BACKUP_DIR/.envrc.age
 ```
 
-If you'd rather keep the encrypted backup outside the repo (e.g. in
-iCloud Drive, a private gist, a USB stick), set `NLQDB_BACKUP_DIR`
-before running either script:
+Override the sync location:
 
 ```bash
-NLQDB_BACKUP_DIR=~/Library/Mobile\ Documents/com~apple~CloudDocs scripts/backup-envrc.sh
-# and on the destination machine:
-NLQDB_BACKUP_DIR=~/Library/Mobile\ Documents/com~apple~CloudDocs scripts/restore-envrc.sh
+NLQDB_BACKUP_DIR=/path/to/private/folder scripts/backup-envrc.sh
 ```
 
 ### When a credential fails verify

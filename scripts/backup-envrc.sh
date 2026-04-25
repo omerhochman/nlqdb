@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# nlqdb — encrypt .envrc with a passphrase and write .envrc.age to the
-# repo root, so `git add .envrc.age && git commit` makes the backup
-# travel with the code. On a new machine:
+# nlqdb — encrypt .envrc with a passphrase and write .envrc.age to a
+# private sync folder (iCloud Drive by default). On a new machine:
 #
 #   git clone …
 #   scripts/bootstrap-dev.sh        # installs tools, creates stub .envrc
@@ -9,27 +8,27 @@
 #
 # Uses `age` (installed by bootstrap-dev.sh) in passphrase mode — no
 # keypair management across machines. age uses scrypt (cost 2^18) for
-# key derivation; with a strong passphrase the ciphertext is safe to
-# commit to a public repo.
+# key derivation.
 #
-# DEFINITION OF "STRONG":
-#   - 20+ characters.
-#   - Mixed upper / lower / digit / symbol.
-#   - Not reused from any other service.
-#   - Not a dictionary word or obvious phrase.
-# If your passphrase doesn't meet all four, DON'T commit .envrc.age
-# to a public repo — set NLQDB_BACKUP_DIR to a private location
-# instead (e.g. iCloud Drive).
+# .envrc.age is gitignored and must NEVER live in the repo. The repo
+# history was rewritten on 2026-04-25 to remove a previously-committed
+# .envrc.age; do not re-introduce one.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Default: repo root. Override with NLQDB_BACKUP_DIR for iCloud Drive
-# or any private location.
-BACKUP_DIR="${NLQDB_BACKUP_DIR:-$REPO_ROOT}"
+# Default: iCloud Drive. Override with NLQDB_BACKUP_DIR for any other
+# private sync location (Dropbox, USB stick, etc). The repo root is
+# explicitly rejected.
+BACKUP_DIR="${NLQDB_BACKUP_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/nlqdb-backups}"
 BACKUP_FILE="${BACKUP_DIR}/.envrc.age"
+
+if [[ "$BACKUP_DIR" == "$REPO_ROOT" ]]; then
+  printf '\033[1;31m✗ \033[0m %s\n' "NLQDB_BACKUP_DIR cannot be the repo root — .envrc.age must never live in git." >&2
+  exit 1
+fi
 
 say()  { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓ \033[0m %s\n' "$*"; }
@@ -59,14 +58,10 @@ if age -p -o "$BACKUP_FILE" .envrc; then
   fi
   cat <<NEXT
 
-To restore on a new machine:
+To restore on a new machine (same iCloud account):
   git clone …
   scripts/bootstrap-dev.sh          # installs tools, creates stub .envrc
   scripts/restore-envrc.sh          # decrypts .envrc.age with your passphrase
-
-If the backup is in the repo root, commit it now so it travels with the code:
-  git add .envrc.age
-  git commit -m "chore: refresh encrypted .envrc backup"
 
 Override the default location with:
   NLQDB_BACKUP_DIR=/path/to/private/folder scripts/backup-envrc.sh

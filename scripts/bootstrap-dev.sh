@@ -239,6 +239,16 @@ if command -v direnv >/dev/null 2>&1; then
   ok "direnv allow-listed for $REPO_ROOT"
 fi
 
+# --- 6a. Detect encrypted backup -------------------------------------
+# If the dev has a previous `.envrc.age` synced to iCloud (or a custom
+# NLQDB_BACKUP_DIR), point them at restore-envrc.sh so the 1-shot
+# setup story stays single-command-feeling.
+BACKUP_PATH="${NLQDB_BACKUP_DIR:-$HOME/Library/Mobile Documents/com~apple~CloudDocs/nlqdb-backups}/.envrc.age"
+if [[ -f "$BACKUP_PATH" ]]; then
+  warn "Encrypted backup detected at: $BACKUP_PATH"
+  warn "Run \`scripts/restore-envrc.sh\` to overwrite the stub .envrc with your real values."
+fi
+
 # --- 7. What's left for the human --------------------------------------
 
 cat <<'NEXT'
