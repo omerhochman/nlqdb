@@ -97,8 +97,12 @@ Every credential's canonical name lives in
 - **Local dev:** `.envrc` (gitignored), loaded automatically by
   direnv. Regenerate self-signed secrets by running
   `scripts/bootstrap-dev.sh` after deleting `.envrc`.
-- **CI (GitHub Actions):** not yet mirrored — §2.7 pending.
-- **Runtime (Cloudflare Workers):** not yet mirrored — §2.7 pending.
+- **CI (GitHub Actions):** mirrored from `.envrc` via
+  `scripts/mirror-secrets-gha.sh` (idempotent; never logs values).
+  Skips `BETTER_AUTH_SECRET` + `INTERNAL_JWT_SECRET` — local-dev only;
+  CI workflows generate ephemeral test values per run.
+- **Runtime (Cloudflare Workers):** not yet mirrored — Phase 0 §3
+  pending (needs `apps/api` to exist).
 
 **Live verification:** `./scripts/verify-secrets.sh`. Current baseline
 is 12/12 (BETTER_AUTH_SECRET, INTERNAL_JWT_SECRET, CLOUDFLARE_*×3,
@@ -172,8 +176,8 @@ nlqdb." rather than naming a specific backend.
   - **`nlqdb-web-dev` (deferred — Phase 0 §3):** a *separate* OAuth
     App under the same `nlqdb` org, callback
     `http://localhost:8787/auth/callback/github`, credentials
-    populated into `.envrc` under `GITHUB_CLIENT_ID_DEV` /
-    `GITHUB_CLIENT_SECRET_DEV` (or `.dev.vars` per Wrangler
+    populated into `.envrc` under `OAUTH_GITHUB_CLIENT_ID_DEV` /
+    `OAUTH_GITHUB_CLIENT_SECRET_DEV` (or `.dev.vars` per Wrangler
     convention — TBD when the auth code lands). Provision this
     when implementing the Better Auth scaffold so devs can sign in
     against `wrangler dev`.
@@ -183,8 +187,10 @@ nlqdb." rather than naming a specific backend.
 - **Enable Device Flow:** ✅ — CLI uses device-code flow (`nlq login`)
   per [DESIGN.md §3.3](./DESIGN.md#33-cli-and-device-code-flow).
 - **Webhook URL:** _none_ — auth-only, no webhook.
-- **Credentials in `.envrc`** as `GITHUB_CLIENT_ID` +
-  `GITHUB_CLIENT_SECRET`. Refresh `.envrc.age` via
+- **Credentials in `.envrc`** as `OAUTH_GITHUB_CLIENT_ID` +
+  `OAUTH_GITHUB_CLIENT_SECRET` (the `OAUTH_*` prefix avoids GHA's
+  reserved `GITHUB_*` namespace; same names used in CI / Workers
+  secrets so mirroring is 1:1). Refresh `.envrc.age` via
   `scripts/backup-envrc.sh` after pasting.
 
 **Verification:** `./scripts/verify-secrets.sh` does a live probe of
@@ -242,8 +248,8 @@ When it does, it'll deploy via `wrangler deploy` from `apps/api/`.
 | 2.5  | Stripe (test mode)                 | ⏳            |
 | 2.6  | Sentry DSN                         | ✅            |
 | 2.6  | Grafana Cloud                      | ⏳            |
-| 2.7  | Mirror `.envrc` → GHA secrets      | ⏳            |
-| 2.7  | Mirror `.envrc` → Workers secrets  | ⏳            |
+| 2.7  | Mirror `.envrc` → GHA secrets      | ✅ via `scripts/mirror-secrets-gha.sh` |
+| 2.7  | Mirror `.envrc` → Workers secrets  | ⏳ (Phase 0 §3 — needs `apps/api`) |
 
 ---
 

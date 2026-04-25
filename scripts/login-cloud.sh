@@ -120,9 +120,10 @@ resource, paste the resulting value into .envrc.
 
   GitHub OAuth   https://github.com/organizations/nlqdb/settings/applications/new
                  Homepage:    https://nlqdb.com
-                 Callbacks:   https://app.nlqdb.com/auth/callback/github
-                              https://nlqdb.com/device/approve
-                 → GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
+                 Callback:    https://app.nlqdb.com/auth/callback/github
+                              (one URL per app — separate nlqdb-web-dev
+                              for localhost when auth code lands)
+                 → OAUTH_GITHUB_CLIENT_ID, OAUTH_GITHUB_CLIENT_SECRET
 
   Google OAuth   https://console.cloud.google.com/apis/credentials
                  Same callback set as GitHub.
