@@ -178,21 +178,91 @@ fi
 # deliberately-wrong secret — overkill for this check; a malformed
 # client_id virtually never collides with a real one.
 # Neither path leaks the secret.
-if [[ -n "${OAUTH_GITHUB_CLIENT_ID:-}" && -n "${OAUTH_GITHUB_CLIENT_SECRET:-}" ]]; then
+check_github_oauth_pair() {
+  local id_var="$1" secret_var="$2"
+  local id="${!id_var:-}" secret="${!secret_var:-}"
+  if [[ -z "$id" && -z "$secret" ]]; then skip "$id_var"; skip "$secret_var"; return; fi
+  if [[ -z "$id" ]]; then skip "$id_var"; return; fi
+  if [[ -z "$secret" ]]; then skip "$secret_var"; return; fi
+  local body
   body=$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
-    -u "${OAUTH_GITHUB_CLIENT_ID}:${OAUTH_GITHUB_CLIENT_SECRET}" \
+    -u "${id}:${secret}" \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
     -X POST -d '{"access_token":"verify-secrets-probe"}' \
-    "https://api.github.com/applications/${OAUTH_GITHUB_CLIENT_ID}/token" 2>&1)
+    "https://api.github.com/applications/${id}/token" 2>&1)
   case "$body" in
-    404) ok "OAUTH_GITHUB_CLIENT_ID + OAUTH_GITHUB_CLIENT_SECRET (HTTP $body, pair accepted)";;
-    401) fail "OAUTH_GITHUB_CLIENT_*"   "HTTP $body — id/secret pair rejected by Basic auth";;
-    *)   fail "OAUTH_GITHUB_CLIENT_*"   "HTTP $body (unexpected)";;
+    404) ok "$id_var + $secret_var (HTTP $body, pair accepted)";;
+    401) fail "${id_var%_ID*}_*" "HTTP $body — id/secret pair rejected by Basic auth";;
+    *)   fail "${id_var%_ID*}_*" "HTTP $body (unexpected)";;
   esac
+}
+check_github_oauth_pair OAUTH_GITHUB_CLIENT_ID     OAUTH_GITHUB_CLIENT_SECRET
+check_github_oauth_pair OAUTH_GITHUB_CLIENT_ID_DEV OAUTH_GITHUB_CLIENT_SECRET_DEV
+
+say "Email (Resend)"
+# Resend API: GET /domains lists configured sending domains. Smallest
+# privilege endpoint that responds the same regardless of provisioning
+# state — empty domain list still returns HTTP 200 + {"data":[]}.
+# Format: keys start with `re_`.
+if [[ -n "${RESEND_API_KEY:-}" ]]; then
+  if [[ "$RESEND_API_KEY" != re_* ]]; then
+    fail "RESEND_API_KEY" "doesn't start with re_ — paste error?"
+  else
+    body=$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
+      -H "Authorization: Bearer ${RESEND_API_KEY}" \
+      "https://api.resend.com/domains" 2>&1)
+    case "$body" in
+      200) ok "RESEND_API_KEY (HTTP $body, key accepted)";;
+      401|403) fail "RESEND_API_KEY" "HTTP $body — key rejected";;
+      *)   fail "RESEND_API_KEY" "HTTP $body (unexpected)";;
+    esac
+  fi
 else
-  [[ -z "${OAUTH_GITHUB_CLIENT_ID:-}"     ]] && skip "OAUTH_GITHUB_CLIENT_ID"
-  [[ -z "${OAUTH_GITHUB_CLIENT_SECRET:-}" ]] && skip "OAUTH_GITHUB_CLIENT_SECRET"
+  skip "RESEND_API_KEY"
+fi
+
+say "Payments (Stripe — test mode)"
+# Stripe live-check: GET /v1/balance with the secret key as Basic-auth
+# username (no password). Works in test mode; valid key → 200, invalid
+# → 401. Format: test secret keys start with `sk_test_`. Publishable
+# keys start with `pk_test_` and are public — format-check only (you
+# can't authenticate as the publishable key). Webhook secret starts
+# with `whsec_` and isn't checkable until a real webhook fires.
+if [[ -n "${STRIPE_SECRET_KEY:-}" ]]; then
+  if [[ "$STRIPE_SECRET_KEY" != sk_test_* && "$STRIPE_SECRET_KEY" != sk_live_* ]]; then
+    fail "STRIPE_SECRET_KEY" "doesn't start with sk_test_ / sk_live_"
+  else
+    [[ "$STRIPE_SECRET_KEY" == sk_live_* ]] && warn_live=" (LIVE mode!)" || warn_live=""
+    body=$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
+      -u "${STRIPE_SECRET_KEY}:" \
+      "https://api.stripe.com/v1/balance" 2>&1)
+    case "$body" in
+      200) ok "STRIPE_SECRET_KEY (HTTP $body, key accepted${warn_live})";;
+      401) fail "STRIPE_SECRET_KEY" "HTTP $body — key rejected";;
+      *)   fail "STRIPE_SECRET_KEY" "HTTP $body (unexpected)";;
+    esac
+  fi
+else
+  skip "STRIPE_SECRET_KEY"
+fi
+if [[ -n "${STRIPE_PUBLISHABLE_KEY:-}" ]]; then
+  if [[ "$STRIPE_PUBLISHABLE_KEY" == pk_test_* || "$STRIPE_PUBLISHABLE_KEY" == pk_live_* ]]; then
+    ok "STRIPE_PUBLISHABLE_KEY (format looks right, ${#STRIPE_PUBLISHABLE_KEY} chars)"
+  else
+    fail "STRIPE_PUBLISHABLE_KEY" "doesn't start with pk_test_ / pk_live_"
+  fi
+else
+  skip "STRIPE_PUBLISHABLE_KEY"
+fi
+if [[ -n "${STRIPE_WEBHOOK_SECRET:-}" ]]; then
+  if [[ "$STRIPE_WEBHOOK_SECRET" == whsec_* ]]; then
+    ok "STRIPE_WEBHOOK_SECRET (format looks right, ${#STRIPE_WEBHOOK_SECRET} chars)"
+  else
+    fail "STRIPE_WEBHOOK_SECRET" "doesn't start with whsec_"
+  fi
+else
+  skip "STRIPE_WEBHOOK_SECRET"
 fi
 
 say "Grafana Cloud"

@@ -228,14 +228,16 @@ Cloud for Startups / Modal startup credits.
       enabled (CLI `nlq login` per §3.3 design); device-code flow
       polls and never invokes the callback. Configured details in
       [`RUNBOOK §5b`](./RUNBOOK.md#5b-github-oauth--whats-configured).
-- [ ] **GitHub OAuth app — `nlqdb-web-dev`** (Phase 0 §3 with auth
-      code) → second OAuth App under the `nlqdb` org with callback
-      `http://localhost:8787/auth/callback/github`. Credentials
-      populate `OAUTH_GITHUB_CLIENT_ID_DEV` /
-      `OAUTH_GITHUB_CLIENT_SECRET_DEV` in `.envrc` (or `.dev.vars`
-      per Wrangler convention — TBD when the auth code lands).
-      Required because GitHub OAuth Apps support exactly one
-      callback URL each.
+- [x] **GitHub OAuth app — `nlqdb-web-dev`** →
+      `OAUTH_GITHUB_CLIENT_ID_DEV`, `OAUTH_GITHUB_CLIENT_SECRET_DEV`.
+      Second OAuth App under the `nlqdb` org with callback
+      `http://localhost:8787/auth/callback/github` (Wrangler dev —
+      Better Auth lives in Workers per §4 design). Required because
+      GitHub OAuth Apps support exactly one callback URL each.
+      Live-verified via the same `/applications/{id}/token` probe as
+      prod (HTTP 404 = pair accepted). Better Auth will pick prod vs
+      dev credentials based on `NODE_ENV` / Wrangler env when the
+      auth code lands in Phase 0 §3.
 - [x] **Google OAuth client** → `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
       (same redirect set). GCP project: `nlqdb`. OAuth consent screen
       in **Testing** mode; publishing-to-production (and therefore
@@ -245,16 +247,36 @@ Cloud for Startups / Modal startup credits.
       (days, not weeks). Client name: `nlqdb-web`. Redirect URIs and
       JS origins enumerated in [`RUNBOOK.md §5`](./RUNBOOK.md).
 - [ ] CLI build dep: `github.com/zalando/go-keyring` (OS keychain).
-- [ ] **Resend** → `RESEND_API_KEY`; configure SPF/DKIM/DMARC for `nlqdb.com`.
-- [ ] **AWS SES** (fallback) → `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`.
-- [ ] **Stripe** (test mode until Phase 2) → `STRIPE_SECRET_KEY`,
-      `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`; enable Stripe Tax.
+- [x] **Resend** → `RESEND_API_KEY` (free tier, 3k emails/mo). API key
+      live-verified via `verify-secrets.sh`. Domain verification for
+      `nlqdb.com` (SPF/DKIM/DMARC) deferred to Phase 1 — no outbound
+      mail until magic-link sign-in lands.
+- [ ] ~~**AWS SES** (fallback)~~ → **dropped from Phase 0/1**.
+      AWS account creation requires a credit card — violates strict-$0.
+      Resend free tier (3k emails/mo, 100/day) is overkill for
+      pre-PMF traffic; a fallback is only worth provisioning if/when
+      we hit the Resend ceiling or experience an outage. When that
+      happens, prefer card-free alternatives (Postmark / MailerSend /
+      Loops) over AWS SES.
+- [x] **Stripe** (test mode) → `STRIPE_SECRET_KEY`,
+      `STRIPE_PUBLISHABLE_KEY`. Both live-verified (`sk_test_…` /
+      `pk_test_…`). Merchant: Switzerland / CHF; statement descriptor
+      `NLQDB.COM`. Stripe Tax to enable when going live in Phase 2.
+- [ ] **Stripe webhook secret** → `STRIPE_WEBHOOK_SECRET`. Phase 0 §3
+      — needs `apps/api` to host the webhook endpoint before the
+      signing secret can be minted.
 
 ### 2.6 Observability
 
-- [ ] Sentry → `SENTRY_DSN` (5k errors/mo free).
-- [ ] Plausible — self-hosted on Fly (no SaaS key).
-- [ ] Grafana Cloud → `GRAFANA_CLOUD_API_KEY`, `GRAFANA_OTLP_ENDPOINT`.
+- [x] **Sentry** → `SENTRY_DSN` (5k errors/mo free). Live-verified.
+- [ ] **Plausible** — self-hosted on Fly (no SaaS key). Phase 1.
+- [x] **Grafana Cloud OTLP** →
+      `GRAFANA_CLOUD_API_KEY`,
+      `GRAFANA_CLOUD_INSTANCE_ID`,
+      `GRAFANA_OTLP_ENDPOINT`. Stack `nlqdb` on `us-east-2`,
+      instance `1609127`, access policy `nlqdb-phase0-telemetry` with
+      `metrics:write` + `logs:write` + `traces:write`. Live-verified
+      via empty OTLP envelope POST (HTTP 200/400/415 = auth accepted).
 
 ### 2.7 Secret management
 
