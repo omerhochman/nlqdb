@@ -137,6 +137,7 @@ Canonical names. Every slice MUST use these — no one-off variants.
 | `db.query`                    | Neon HTTP execute — standard OTel `db.*`.      |
 | `nlqdb.auth.oauth.callback`   | `/v1/auth/callback/github` flow.               |
 | `nlqdb.webhook.stripe`        | Stripe webhook handler.                        |
+| `nlqdb.events.emit`           | Product-event sink dispatch (LogSnag; PostHog optional Phase 2). Wrapped in `ctx.waitUntil` so it runs **after** the response is returned — zero user-facing latency. Server-side only; no client SDK on the marketing site. |
 
 ### 3.2 Metric names
 
@@ -198,9 +199,9 @@ Every slice from 3 onward MUST include:
 | :---- | :----------------------------------------------------- | :--------------------------------------------------------------- | :-------------------------------------- |
 | 3 — Neon adapter      | `db.query` (label `db.system=postgresql`, `db.operation`) | `nlqdb.db.duration_ms{operation}`                                | span emitted; p50 < 200 ms in test.     |
 | 4 — LLM router        | `llm.classify` / `llm.plan` / `llm.summarize` (label `llm.provider`, `llm.model`) | `nlqdb.llm.calls.total`, `nlqdb.llm.duration_ms`, `nlqdb.llm.failover.total` | failover counter increments on forced provider failure. |
-| 5 — Better Auth       | `nlqdb.auth.verify`, `nlqdb.auth.oauth.callback`       | `nlqdb.auth.events.total`                                        | sign-in success + failure both emit events. |
-| 6 — `/v1/ask` E2E     | `nlqdb.ask` (parent), `nlqdb.ask.hash`, `nlqdb.cache.plan.lookup` / `write`, `nlqdb.sql.validate`, `nlqdb.ratelimit.check` | `nlqdb.ask.duration_ms`, `nlqdb.cache.plan.hits.total` / `misses.total` | end-to-end span tree present; cache hit on second identical request. |
-| 7 — Stripe webhook    | `nlqdb.webhook.stripe`                                 | `nlqdb.requests.total{route="/v1/stripe/webhook"}`               | signature verify span emitted.          |
+| 5 — Better Auth       | `nlqdb.auth.verify`, `nlqdb.auth.oauth.callback`, `nlqdb.events.emit` (new sign-in only) | `nlqdb.auth.events.total`                                        | sign-in success + failure both emit OTel events; first-time sign-in fires exactly one `user.registered` into the sink (asserted with stub sink — real `LOGSNAG_TOKEN` not required in CI). |
+| 6 — `/v1/ask` E2E     | `nlqdb.ask` (parent), `nlqdb.ask.hash`, `nlqdb.cache.plan.lookup` / `write`, `nlqdb.sql.validate`, `nlqdb.ratelimit.check`, `nlqdb.events.emit` (first-query only) | `nlqdb.ask.duration_ms`, `nlqdb.cache.plan.hits.total` / `misses.total` | end-to-end span tree present; cache hit on second identical request; `user.first_query` fires exactly once per user. |
+| 7 — Stripe webhook    | `nlqdb.webhook.stripe`, `nlqdb.events.emit`            | `nlqdb.requests.total{route="/v1/stripe/webhook"}`               | signature verify span emitted; `subscription.created` / `subscription.canceled` / `trial.expired` map 1:1 to events fired into the sink (asserted with stub sink). |
 
 The **OTel SDK + OTLP exporter** lands as part of Slice 3 (one-time
 infrastructure). All later slices just call into it.

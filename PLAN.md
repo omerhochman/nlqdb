@@ -296,6 +296,13 @@ We lean toward tools with **real APIs, generous free tiers, and no mandatory UI 
 
 - **Grafana Cloud free tier** + OTEL — good enough until we outgrow it.
 - **Sentry** for app errors.
+- **Plausible** (self-hosted) for web engagement.
+- **`events.emit()` → LogSnag** — single product-event sink for signup
+  / first-query / subscription lifecycle. LogSnag fans events out to
+  Slack / Discord / email itself. PostHog deferred to Phase 2 *only*
+  if a real cohort/funnel question lands that SQL on D1/Neon can't
+  answer. Distinct from OTel: events describe what the *user* did,
+  OTel what the *system* did. See [`DESIGN.md §5.4`](./DESIGN.md).
 - **Self-hosted Loki** later.
 
 ### MCP

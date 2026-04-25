@@ -287,6 +287,63 @@ else
   [[ -z "${GRAFANA_CLOUD_API_KEY:-}"    ]] && skip "GRAFANA_CLOUD_API_KEY"
 fi
 
+say "Product events"
+# LogSnag — sole sink for founder pings (signup / first-query / sub
+# lifecycle). Format-check only, by design:
+#
+#   Empirically, LogSnag's /v1/log accepts a valid-shape body with
+#   HTTP 200 regardless of bearer-token validity (verified
+#   2026-04-25). There's no GET / whoami / auth-only endpoint to
+#   probe against. A live probe is therefore unreliable AND would
+#   emit a real event. Format-check only matches the
+#   STRIPE_WEBHOOK_SECRET pattern; bad tokens surface at first emit
+#   (caught by Sentry + Worker tail logs).
+#
+# Per docs: tokens are 32 lowercase-hex chars, no prefix.
+if [[ -n "${LOGSNAG_TOKEN:-}" ]]; then
+  if [[ "$LOGSNAG_TOKEN" =~ ^[0-9a-f]{32}$ ]]; then
+    ok "LOGSNAG_TOKEN (format looks right, ${#LOGSNAG_TOKEN} hex chars)"
+  else
+    fail "LOGSNAG_TOKEN" "expected 32 lowercase-hex chars (got ${#LOGSNAG_TOKEN})"
+  fi
+else
+  skip "LOGSNAG_TOKEN"
+fi
+if [[ -n "${LOGSNAG_PROJECT:-}" ]]; then
+  # Slug rules: lowercase letters, digits, hyphens. Cheap typo guard.
+  if [[ "$LOGSNAG_PROJECT" =~ ^[a-z0-9-]+$ ]]; then
+    ok "LOGSNAG_PROJECT (slug format OK: $LOGSNAG_PROJECT)"
+  else
+    fail "LOGSNAG_PROJECT" "not a valid slug (expected lowercase a-z, 0-9, hyphens)"
+  fi
+else
+  skip "LOGSNAG_PROJECT"
+fi
+
+# PostHog — Phase 2 optional second sink, format-check only. Live
+# probe deferred until the sink is actually wired up; until then, a
+# present key just means "something was provisioned." Server-side
+# capture from the Worker is zero-user-facing-latency via ctx.waitUntil,
+# but that property is enforced in code, not here.
+if [[ -n "${POSTHOG_API_KEY:-}" ]]; then
+  if [[ "$POSTHOG_API_KEY" == phc_* ]]; then
+    ok "POSTHOG_API_KEY (format looks right, ${#POSTHOG_API_KEY} chars)"
+  else
+    fail "POSTHOG_API_KEY" "doesn't start with phc_ — paste error?"
+  fi
+else
+  skip "POSTHOG_API_KEY"
+fi
+if [[ -n "${POSTHOG_HOST:-}" ]]; then
+  if [[ "$POSTHOG_HOST" =~ ^https://[a-z0-9.-]+\.posthog\.com/?$ ]]; then
+    ok "POSTHOG_HOST (looks right: $POSTHOG_HOST)"
+  else
+    fail "POSTHOG_HOST" "expected https://us.posthog.com or https://eu.posthog.com"
+  fi
+else
+  skip "POSTHOG_HOST"
+fi
+
 say "Observability"
 # Sentry DSN format:
 #   https://<public-key>@o<org-id>.ingest.sentry.io/<project-id>

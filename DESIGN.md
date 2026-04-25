@@ -489,9 +489,37 @@ partnerships pre-PMF, AppSumo lifetime deals, gated content.
 
 ### 5.4 Analytics
 
-**Plausible** (self-hosted on Fly, GDPR-exempt, no cookie banner),
-**Sentry** (5k errors/mo free), **OpenTelemetry** → **Grafana Cloud**
-free for traces. PostHog only if Plausible isn't enough (likely Phase 2).
+Three layers, kept distinct:
+
+1. **Web engagement** — **Plausible** (self-hosted on Fly, GDPR-exempt,
+   no cookie banner). Page views, sources, click-through to sign-up.
+2. **Ops telemetry** — **Sentry** (5k errors/mo free) + **OpenTelemetry**
+   → **Grafana Cloud** free for traces / metrics / logs. Drives the
+   "fast" promise.
+3. **Product events** — a thin in-house `events.emit(name, props)`
+   ([`packages/events`](./packages/events)) called from auth + the
+   Stripe webhook. **One sink: LogSnag** (free tier 2,500 events/mo —
+   plenty if we fire only one-shot events: `user.registered`,
+   `user.first_query`, `subscription.created`, `subscription.canceled`,
+   `trial.expired`; never per-sign-in). LogSnag forwards to
+   Slack/Discord/email itself, so the founder-ping channel is one less
+   thing to wire. The `events.emit` abstraction exists so we can swap
+   or add sinks without touching call sites — a property worth keeping
+   even with one sink today.
+
+A second sink — **PostHog Cloud** for funnels / cohorts / retention —
+is held in reserve for Phase 2, *only* if a real cohort question lands
+that SQL on D1/Neon can't answer. Zero-overhead is enforced in code:
+server-side capture from the Worker, no client SDK on the marketing
+site (would hurt Lighthouse 100s), wrapped in `ctx.waitUntil` so it
+runs after the response is returned. User-facing latency cost: 0 ms.
+Billed CPU per emission: ≤ 1 ms. Until a need lands, the env vars stay
+empty and the sink no-ops.
+
+The boundary is firm: OTel spans describe what the *system* did,
+product events describe what the *user* did. They never collapse —
+high-cardinality labels like `nlqdb.user_id` stay out of metrics (see
+[`PERFORMANCE.md §3.3`](./PERFORMANCE.md)).
 
 Concrete SLOs, per-stage latency budgets, span/metric/label catalog,
 sampling rules, and the slice-by-slice instrumentation plan live in
@@ -549,6 +577,8 @@ have paying customers.
 | Usage metering | Lago (self-hosted) | OSS, free |
 | App errors | Sentry | 5k errors/mo |
 | Web analytics | Plausible (self-hosted) | OSS, GDPR-exempt |
+| Product events (signup / first-query / sub lifecycle) | LogSnag | 2,500 events/mo, 3 seats |
+| Funnels / retention (Phase 2, optional) | PostHog Cloud | 1M events/mo free; only if SQL stops being enough |
 | Backend traces | Grafana Cloud | 10k metrics, 50GB logs |
 | Long-running compute | Fly.io | 3 small machines, 3GB volumes |
 | Domains | `nlqdb.com` + `nlqdb.ai` | **~$85/yr — only fixed cost** |

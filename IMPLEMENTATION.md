@@ -277,12 +277,40 @@ Cloud for Startups / Modal startup credits.
       instance `1609127`, access policy `nlqdb-phase0-telemetry` with
       `metrics:write` + `logs:write` + `traces:write`. Live-verified
       via empty OTLP envelope POST (HTTP 200/400/415 = auth accepted).
+- [ ] **LogSnag** → `LOGSNAG_TOKEN`, `LOGSNAG_PROJECT`. Phase 1 —
+      sole product-event sink. Free tier 2,500 events/mo (Apr 2026)
+      covers pre-PMF easily because `packages/events` only fires
+      one-shot events (signup / first-query / sub lifecycle), never
+      per-sign-in. LogSnag forwards to Slack / Discord / email itself,
+      so we don't run a separate channel. If `LOGSNAG_TOKEN` is absent
+      at runtime, the sink no-ops (unit-tested) so dev + CI never need
+      the real token.
+- [ ] **PostHog Cloud** → `POSTHOG_API_KEY`, `POSTHOG_HOST`.
+      **Phase 2, optional** — only if a cohort / funnel / retention
+      question lands that SQL on D1/Neon can't answer. 1M events/mo
+      free. Wires into `packages/events` as a second sink alongside
+      LogSnag; call sites stay unchanged. Zero user-facing latency by
+      construction (server-side, no SDK, `ctx.waitUntil` after
+      response).
 
 SLOs, per-stage latency budgets, span/metric catalog, sampling rules,
 and the slice-by-slice instrumentation hooks live in
 [`PERFORMANCE.md`](./PERFORMANCE.md). Slice 3 (Neon adapter) is the
 first slice that emits OTel spans — it must ship the SDK + exporter
 wiring per `PERFORMANCE.md §4`.
+
+**`packages/events` — product event sink (distinct from OTel).**
+A ~30-line module exposing `events.emit(name, props)`. Fire-and-forget
+via `ctx.waitUntil` — never blocks the request hot path. The single
+Phase 1 sink is LogSnag; PostHog plugs in as a second sink in Phase 2
+without touching call sites. A missing secret silently drops events
+for that sink. Canonical event names (snake_dot, lowercase):
+`user.registered`, `user.first_query`, `subscription.created`,
+`subscription.canceled`, `trial.expired`. **Sign-ins are deliberately
+not emitted** — they would dominate the 2,500/mo LogSnag quota and
+add no founder signal. Adding a new event requires updating this
+list AND a test asserting the sink call. See
+[`DESIGN.md §5.4`](./DESIGN.md) for the rationale.
 
 ### 2.7 Secret management
 
@@ -418,6 +446,12 @@ chain exercised with forced failover; $0 spent.
   users get a temporary key rotated into `pk_live_` on sign-in.
 - **Hello-world tutorial** (§16) at `nlqdb.com/hello-world`, pinned in README.
 - **Resend** wired (one template: magic link). **Sentry** + **Plausible** wired.
+- **`packages/events` + LogSnag sink** wired. First call sites:
+  `user.registered` (sign-in callback when the user is new) and
+  `user.first_query` (first successful `/v1/ask` per user). Sign-ins
+  are deliberately not emitted (would burn the 2,500/mo quota for no
+  founder signal). Sink reads `LOGSNAG_TOKEN` + `LOGSNAG_PROJECT`;
+  absent in CI / dev — no-op verified by unit test.
 
 **Exit gate:**
 - 4/5 unguided user-tests complete the 60s on-ramp.
@@ -466,7 +500,16 @@ Workload Analyzer.
   form-field-to-column inference.
 - **CSV upload** in the chat (unlocks P3 per `PERSONAS.md`).
 - **Custom domains for embed** via Cloudflare for SaaS (first 100 zones free).
-- **Stripe** live (Hobby $10; pricing page).
+- **Stripe** live (Hobby $10; pricing page). Webhook handler at
+  `/v1/stripe/webhook` calls `events.emit` for `subscription.created`
+  / `subscription.canceled` / `trial.expired` after signature verify
+  (per `PERFORMANCE.md §4` Slice 7) — landing in LogSnag.
+- **PostHog Cloud sink** — *only* turn this on if a cohort / funnel /
+  retention question lands that SQL on D1/Neon can't answer. Wires
+  into `packages/events` alongside LogSnag; call sites unchanged.
+  Server-side capture, no client SDK, `ctx.waitUntil` after response —
+  zero user-facing latency by construction (PERFORMANCE §3.1
+  `nlqdb.events.emit` span).
 - **Lago** + **Listmonk** on Fly.
 - **Docs site** `docs.nlqdb.com` (MDX, full-text search).
 

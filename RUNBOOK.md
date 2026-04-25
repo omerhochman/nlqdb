@@ -86,6 +86,17 @@ re-enable via Cloudflare later).
 **Not yet provisioned**:
 
 - Stripe webhook secret — needs `apps/api` (Phase 0 §3) to host the endpoint.
+- LogSnag (`LOGSNAG_TOKEN` + `LOGSNAG_PROJECT`) — Phase 1. Free tier
+  (2,500 events/mo, 3 seats). Sole sink for `packages/events`; LogSnag
+  fans events out to Slack / Discord / email itself.
+
+**Explicitly deferred** (re-evaluate if a real cohort question lands):
+
+- PostHog Cloud (`POSTHOG_API_KEY`, `POSTHOG_HOST`) — optional Phase 2
+  second sink for funnels / retention. Pre-PMF, SQL on D1/Neon
+  answers every analytics question we actually have. Designed to
+  plug into `packages/events` with zero call-site changes when
+  needed.
 
 **Explicitly skipped** (re-evaluate post-PMF):
 
@@ -302,6 +313,8 @@ and increments `nlqdb.llm.failover.total{reason="not_configured"}`
 | 2.5  | Stripe webhook secret              | ⏳ (Phase 0 §3 with `apps/api`) |
 | 2.6  | Sentry DSN                         | ✅            |
 | 2.6  | Grafana Cloud OTLP                 | ✅            |
+| 2.6  | LogSnag (`LOGSNAG_TOKEN` + `LOGSNAG_PROJECT`) | ⏳ (Phase 1 — single product-event sink) |
+| 2.6  | PostHog Cloud (`POSTHOG_API_KEY`, `POSTHOG_HOST`) | ⏭ optional Phase 2 (only if SQL on D1/Neon stops being enough) |
 | 2.7  | Mirror `.envrc` → GHA secrets      | ✅ via `scripts/mirror-secrets-gha.sh` |
 | 2.7  | Mirror `.envrc` → Workers secrets  | ⏳ (Phase 0 §3 — needs `apps/api`) |
 | 3    | `apps/api` Worker skeleton + `/v1/health` | ✅ (Slice 1 — PR #21) |
@@ -363,6 +376,8 @@ NLQDB_BACKUP_DIR=/path/to/private/folder scripts/backup-envrc.sh
 | `GROQ_API_KEY`         | https://console.groq.com/keys                                              |
 | `OPENROUTER_API_KEY`   | https://openrouter.ai/settings/keys                                        |
 | `SENTRY_DSN`           | Sentry → project settings → Client Keys (DSN). Project-scoped, safe-ish to re-share. |
+| `LOGSNAG_TOKEN`        | app.logsnag.com → Settings → API Tokens → revoke + create. 32-char hex. `LOGSNAG_PROJECT` is a slug, doesn't rotate. |
+| `POSTHOG_API_KEY`      | app.posthog.com → Project settings → Project API Key. Public-ish (used client-side too); rotate via "Reset" in the same panel. |
 | `GOOGLE_CLIENT_*`      | GCP → APIs & Services → Credentials → reset secret (client ID stays)       |
 | `BETTER_AUTH_SECRET`   | `bun -e 'console.log(require("crypto").randomBytes(48).toString("base64url"))'` — rotating this invalidates every active session. |
 | `INTERNAL_JWT_SECRET`  | Same generator as above. Workers-only; rotating is safe any time (30 s TTL). |
