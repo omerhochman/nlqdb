@@ -10,11 +10,17 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "migrate:local": "../../scripts/migrate-d1.sh local",
-    "migrate:remote": "../../scripts/migrate-d1.sh remote"
+    "migrate:remote": "../../scripts/migrate-d1.sh remote",
+    "secrets:local": "../../scripts/mirror-secrets-workers.sh local",
+    "secrets:remote": "../../scripts/mirror-secrets-workers.sh remote"
   },
   "dependencies": {
     "@nlqdb/otel": "workspace:*",
-    "hono": "^4.12.15"
+    "@opentelemetry/api": "^1.9.0",
+    "better-auth": "^1.6.9",
+    "hono": "^4.12.15",
+    "kysely": "^0.28.16",
+    "kysely-d1": "^0.4.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",

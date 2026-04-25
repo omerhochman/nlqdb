@@ -224,14 +224,15 @@ Cloud for Startups / Modal startup credits.
       namespace (repo/org secrets prefixed `GITHUB_` are rejected),
       keeping local + CI + Workers names 1:1 for clean mirroring.
       Single callback URL per OAuth App:
-      `https://app.nlqdb.com/auth/callback/github`. Device flow
-      enabled (CLI `nlq login` per §3.3 design); device-code flow
-      polls and never invokes the callback. Configured details in
+      `https://app.nlqdb.com/api/auth/callback/github` (Better Auth's
+      default `/api/auth/*` basePath). Device flow enabled (CLI
+      `nlq login` per §3.3 design); device-code flow polls and never
+      invokes the callback. Configured details in
       [`RUNBOOK §5b`](./RUNBOOK.md#5b-github-oauth--whats-configured).
 - [x] **GitHub OAuth app — `nlqdb-web-dev`** →
       `OAUTH_GITHUB_CLIENT_ID_DEV`, `OAUTH_GITHUB_CLIENT_SECRET_DEV`.
       Second OAuth App under the `nlqdb` org with callback
-      `http://localhost:8787/auth/callback/github` (Wrangler dev —
+      `http://localhost:8787/api/auth/callback/github` (Wrangler dev —
       Better Auth lives in Workers per §4 design). Required because
       GitHub OAuth Apps support exactly one callback URL each.
       Live-verified via the same `/applications/{id}/token` probe as

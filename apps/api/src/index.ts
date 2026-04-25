@@ -1,5 +1,7 @@
-import { setupTelemetry } from "@nlqdb/otel";
+import { authEventsTotal, setupTelemetry } from "@nlqdb/otel";
+import { trace } from "@opentelemetry/api";
 import { Hono } from "hono";
+import { auth } from "./auth.ts";
 
 type Bindings = {
   KV: KVNamespace;
@@ -43,5 +45,41 @@ app.get("/v1/health", (c) =>
     },
   }),
 );
+
+// Better Auth catch-all (DESIGN §4.1, PERFORMANCE §4 row 5).
+//
+// Span naming: callbacks get `nlqdb.auth.oauth.callback` (one span per
+// IdP code-exchange); every other `/api/auth/*` request — session
+// reads, sign-in init, sign-out — gets `nlqdb.auth.verify`. The
+// `nlqdb.auth.events.total{type, outcome}` counter increments once per
+// request, classifying outcome by HTTP status (2xx/3xx = success,
+// otherwise failure).
+app.on(["POST", "GET"], "/api/auth/*", async (c) => {
+  const url = new URL(c.req.url);
+  const isCallback = url.pathname.startsWith("/api/auth/callback/");
+  const provider = isCallback ? url.pathname.split("/")[4] : undefined;
+  const spanName = isCallback ? "nlqdb.auth.oauth.callback" : "nlqdb.auth.verify";
+  const eventType = isCallback ? "oauth_callback" : "verify";
+  // Tracer fetched per request — same pattern as @nlqdb/db / @nlqdb/llm.
+  // Picks up whichever provider is registered now (test or production).
+  const tracer = trace.getTracer("@nlqdb/api");
+
+  return tracer.startActiveSpan(spanName, async (span) => {
+    if (provider) span.setAttribute("nlqdb.auth.provider", provider);
+    try {
+      const response = await auth.handler(c.req.raw);
+      const outcome = response.status < 400 ? "success" : "failure";
+      span.setAttribute("http.response.status_code", response.status);
+      authEventsTotal().add(1, { type: eventType, outcome });
+      return response;
+    } catch (err) {
+      authEventsTotal().add(1, { type: eventType, outcome: "failure" });
+      span.recordException(err as Error);
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
+});
 
 export default app;

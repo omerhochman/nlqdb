@@ -30,7 +30,8 @@
       "!**/coverage",
       "!**/cli/bin",
       "!**/cli/dist",
-      "!**/examples"
+      "!**/examples",
+      "!**/.claude"
     ]
   },
   "formatter": {

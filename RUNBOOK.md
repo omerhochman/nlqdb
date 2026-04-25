@@ -10,8 +10,8 @@ harder to operate.
 - [PERFORMANCE.md](./PERFORMANCE.md) — SLOs, latency budgets, span/metric catalog.
 - **this file** — what's actually set up right now.
 
-**Last verified: 2026-04-24.** Running `./scripts/verify-secrets.sh`
-should return 12/12 green (or more, as provisioning expands).
+**Last verified: 2026-04-25.** Running `./scripts/verify-secrets.sh`
+should return 21/21 green (or more, as provisioning expands).
 
 ---
 
@@ -154,14 +154,17 @@ prereq (waiting on product stability).
   - Authorized JavaScript origins:
     - `https://app.nlqdb.com`
     - `https://nlqdb.com`
-    - `http://localhost:4321` (Astro dev)
-    - `http://localhost:8787` (Wrangler dev)
+    - `http://localhost:8787` (Wrangler dev — Better Auth lives in
+      Workers, see §5b)
   - Authorized redirect URIs:
-    - `https://app.nlqdb.com/auth/callback/google`
-    - `https://nlqdb.com/device/approve`
-    - `http://localhost:4321/auth/callback/google`
-    - `http://localhost:8787/auth/callback/google`
+    - `https://app.nlqdb.com/api/auth/callback/google` (prod)
+    - `http://localhost:8787/api/auth/callback/google` (Wrangler dev)
   - Credentials in `.envrc` as `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`.
+
+  **Path scheme:** `/api/auth/*` is Better Auth's default basePath; we
+  keep it. Custom device-flow endpoints land at `/v1/auth/{device,
+  device/token, refresh, logout}` in a later slice (different paths,
+  different ownership) — Google's redirect URI list above is OAuth-only.
 
 **Verification submission TODO** (Phase 1):
 
@@ -190,14 +193,17 @@ nlqdb." rather than naming a specific backend.
   capability is for GitHub Apps, a different product). Multi-env
   strategy:
   - **`nlqdb-web` (prod):** homepage `https://nlqdb.com`, callback
-    `https://app.nlqdb.com/auth/callback/github`. Credentials in
+    `https://app.nlqdb.com/api/auth/callback/github`. Credentials in
     `.envrc` as `OAUTH_GITHUB_CLIENT_ID` + `_SECRET`.
-  - **`nlqdb-web-dev`:** homepage `http://localhost:4321` (Astro
-    dev), callback `http://localhost:8787/auth/callback/github`
-    (Wrangler dev — Better Auth lives in Workers per DESIGN §4).
-    Credentials in `.envrc` as `OAUTH_GITHUB_CLIENT_ID_DEV` +
-    `_SECRET_DEV`. Better Auth picks based on `NODE_ENV` /
-    Wrangler env when the auth code lands in Phase 0 §3.
+  - **`nlqdb-web-dev`:** homepage `http://localhost:8787` (Wrangler
+    dev — Better Auth lives in Workers per DESIGN §4), callback
+    `http://localhost:8787/api/auth/callback/github`. Credentials in
+    `.envrc` as `OAUTH_GITHUB_CLIENT_ID_DEV` + `_SECRET_DEV`. Better
+    Auth picks based on `NODE_ENV` (set via `wrangler.toml [vars]`).
+  - `/api/auth/*` is Better Auth's default basePath; we keep it.
+    `/v1/auth/{device, device/token, refresh, logout}` are different
+    custom endpoints landing in a later slice — they don't use this
+    callback URL.
   - `https://nlqdb.com/device/approve` is the **device-flow user-prompt
     page**, not an OAuth redirect — device flow polls and never invokes
     the callback URL, so it doesn't need to be registered.
@@ -234,11 +240,13 @@ the failure path (Basic auth rejected = wrong id or secret).
 Cloudflare Worker `nlqdb-api`. Slice 1 shipped `/v1/health`; Slice 2
 added KV + D1 bindings (R2 deferred); Slice 3 added the Neon adapter
 (`packages/db`), the OTel SDK + OTLP exporters (`packages/otel`), and
-the first D1 migration; Slice 4 lands the strict-$0 LLM router
+the first D1 migration; Slice 4 landed the strict-$0 LLM router
 (`packages/llm`) — Groq + Gemini + Workers AI + OpenRouter behind a
-cost-ordered failover chain. Deploys via `wrangler deploy` from
-`apps/api/`. Resource IDs are committed in `apps/api/wrangler.toml`
-(account-scoped, not secret).
+cost-ordered failover chain; Slice 5 wires Better Auth at
+`/api/auth/*` with GitHub + Google social providers, backed by D1
+(four tables in `migrations/0002_better_auth.sql`). Deploys via
+`wrangler deploy` from `apps/api/`. Resource IDs are committed in
+`apps/api/wrangler.toml` (account-scoped, not secret).
 
 **Cloudflare resources** (provisioned by
 `scripts/provision-cf-resources.sh`, idempotent):
@@ -280,6 +288,28 @@ A provider listed in a chain but missing its key is simply skipped
 and increments `nlqdb.llm.failover.total{reason="not_configured"}`
 — the next provider in the chain handles the call.
 
+**Better Auth** (`apps/api/src/auth.ts`): top-level singleton, wired
+via `import { env } from "cloudflare:workers"`. Reads
+`BETTER_AUTH_SECRET`, `OAUTH_GITHUB_CLIENT_{ID,SECRET}` (or `_DEV`
+when `NODE_ENV !== "production"`), `GOOGLE_CLIENT_{ID,SECRET}` at
+module load. Persists to D1 via `kysely-d1`. `basePath: "/api/auth"`
+(Better Auth's default; matches the OAuth Apps registered in §5b
+and the Google client redirect URIs in §5).
+
+Secrets mirror — single source of truth is `.envrc`:
+
+```bash
+bun --cwd apps/api run secrets:local    # writes apps/api/.dev.vars (wrangler dev)
+bun --cwd apps/api run secrets:remote   # wrangler secret bulk → deployed Worker
+```
+
+Both modes filter to the Worker-runtime subset (BETTER_AUTH_SECRET,
+OAUTH_GITHUB_*, GOOGLE_CLIENT_*, LLM keys, DATABASE_URL, GRAFANA_*).
+`GRAFANA_OTLP_AUTHORIZATION` is computed from the
+`GRAFANA_CLOUD_INSTANCE_ID:GRAFANA_CLOUD_API_KEY` pair so rotation
+stays on the pair (IMPLEMENTATION §2.6). Re-run after any `.envrc`
+rotation; idempotent.
+
 ---
 
 ## 7. Prerequisites checklist (§2 of IMPLEMENTATION.md)
@@ -316,10 +346,13 @@ and increments `nlqdb.llm.failover.total{reason="not_configured"}`
 | 2.6  | LogSnag (`LOGSNAG_TOKEN` + `LOGSNAG_PROJECT`) | ⏳ (Phase 1 — single product-event sink) |
 | 2.6  | PostHog Cloud (`POSTHOG_API_KEY`, `POSTHOG_HOST`) | ⏭ optional Phase 2 (only if SQL on D1/Neon stops being enough) |
 | 2.7  | Mirror `.envrc` → GHA secrets      | ✅ via `scripts/mirror-secrets-gha.sh` |
-| 2.7  | Mirror `.envrc` → Workers secrets  | ⏳ (Phase 0 §3 — needs `apps/api`) |
+| 2.7  | Mirror `.envrc` → Workers secrets  | ✅ via `scripts/mirror-secrets-workers.sh local`/`remote` |
 | 3    | `apps/api` Worker skeleton + `/v1/health` | ✅ (Slice 1 — PR #21) |
 | 3    | KV namespace `nlqdb-cache` (binding `KV`) | ✅ (Slice 2) |
 | 3    | D1 database `nlqdb-app` (binding `DB`)    | ✅ (Slice 2) |
+| 3    | Neon adapter + OTel SDK + first D1 migration | ✅ (Slice 3 — PR #24) |
+| 3    | LLM router with strict-$0 provider chain  | ✅ (Slice 4 — PR #25) |
+| 3    | Better Auth at `/api/auth/*` + D1 0002    | ✅ (Slice 5)          |
 | 3    | R2 bucket `nlqdb-assets` (binding `ASSETS`) | ⏳ deferred — needs dashboard opt-in |
 
 ---

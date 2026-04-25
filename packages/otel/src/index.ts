@@ -195,9 +195,20 @@ export function llmFailoverTotal(): Counter {
   return _llmFailoverTotal;
 }
 
+let _authEventsTotal: Counter | undefined;
+export function authEventsTotal(): Counter {
+  if (!_authEventsTotal) {
+    _authEventsTotal = metrics.getMeter("@nlqdb/api").createCounter("nlqdb.auth.events.total", {
+      description: "Auth events, labelled by type (oauth_callback / verify) and outcome.",
+    });
+  }
+  return _authEventsTotal;
+}
+
 export function resetInstrumentsForTest(): void {
   _dbDurationMs = undefined;
   _llmCallsTotal = undefined;
   _llmDurationMs = undefined;
   _llmFailoverTotal = undefined;
+  _authEventsTotal = undefined;
 }

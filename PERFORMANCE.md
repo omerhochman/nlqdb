@@ -22,7 +22,7 @@ state of provisioned infra (see [RUNBOOK.md](./RUNBOOK.md)).
 | `GET /v1/health`                 | < 5 ms   | < 50 ms  | Pure JSON serialize, no I/O.              |
 | `POST /v1/ask` — **cache hit**   | < 200 ms | < 500 ms | Plan in KV, just execute SQL.             |
 | `POST /v1/ask` — **cache miss**  | < 1.5 s  | < 3.5 s  | Full LLM plan + execute + (opt) summarize. |
-| `GET /v1/auth/callback/github`   | < 200 ms | < 1.0 s  | OAuth code exchange + DB user upsert.     |
+| `GET /api/auth/callback/github`  | < 200 ms | < 1.0 s  | OAuth code exchange + DB user upsert.     |
 | `POST /v1/auth/device`           | < 50 ms  | < 200 ms | DB write only.                            |
 | `POST /v1/auth/device/token`     | < 100 ms | < 500 ms | DB read + write + JWT sign.               |
 | `POST /v1/auth/refresh`          | < 50 ms  | < 200 ms | KV/DB read + JWT sign.                    |
@@ -84,7 +84,7 @@ above a threshold (default 5) or when the intent classifier flagged
 the query as conversational. Most fact-lookup queries return raw rows
 and skip stage 10 entirely.
 
-### 2.3 `POST /v1/auth/callback/github`
+### 2.3 `GET /api/auth/callback/github`
 
 | Stage                                  | p50    | p99    |
 | :------------------------------------- | :----- | :----- |
@@ -135,7 +135,7 @@ Canonical names. Every slice MUST use these — no one-off variants.
 | `llm.summarize`               | Result summarization (conditional).            |
 | `nlqdb.sql.validate`          | SQL parse + schema-fit check.                  |
 | `db.query`                    | Neon HTTP execute — standard OTel `db.*`.      |
-| `nlqdb.auth.oauth.callback`   | `/v1/auth/callback/github` flow.               |
+| `nlqdb.auth.oauth.callback`   | `/api/auth/callback/{github,google}` flow.     |
 | `nlqdb.webhook.stripe`        | Stripe webhook handler.                        |
 | `nlqdb.events.emit`           | Product-event sink dispatch (LogSnag; PostHog optional Phase 2). Wrapped in `ctx.waitUntil` so it runs **after** the response is returned — zero user-facing latency. Server-side only; no client SDK on the marketing site. |
 
@@ -200,7 +200,7 @@ Every slice from 3 onward MUST include:
 | 3 — Neon adapter      | `db.query` (label `db.system=postgresql`, `db.operation`) | `nlqdb.db.duration_ms{operation}`                                | span emitted; p50 < 200 ms in test.     |
 | 4 — LLM router        | `llm.classify` / `llm.plan` / `llm.summarize` (label `llm.provider`, `llm.model`) | `nlqdb.llm.calls.total`, `nlqdb.llm.duration_ms`, `nlqdb.llm.failover.total` | failover counter increments on forced provider failure. |
 | 5 — Better Auth       | `nlqdb.auth.verify`, `nlqdb.auth.oauth.callback`, `nlqdb.events.emit` (new sign-in only) | `nlqdb.auth.events.total`                                        | sign-in success + failure both emit OTel events; first-time sign-in fires exactly one `user.registered` into the sink (asserted with stub sink — real `LOGSNAG_TOKEN` not required in CI). |
-| 6 — `/v1/ask` E2E     | `nlqdb.ask` (parent), `nlqdb.ask.hash`, `nlqdb.cache.plan.lookup` / `write`, `nlqdb.sql.validate`, `nlqdb.ratelimit.check`, `nlqdb.events.emit` (first-query only) | `nlqdb.ask.duration_ms`, `nlqdb.cache.plan.hits.total` / `misses.total` | end-to-end span tree present; cache hit on second identical request; `user.first_query` fires exactly once per user. |
+| 6 — `/v1/ask` E2E     | `nlqdb.ask` (parent), `nlqdb.ask.hash`, `nlqdb.cache.plan.lookup` / `write`, `nlqdb.sql.validate`, `nlqdb.ratelimit.check`, `nlqdb.events.emit` (first-query only) | `nlqdb.ask.duration_ms`, `nlqdb.cache.plan.hits.total` / `misses.total` | end-to-end span tree present; cache hit on second identical request; `user.first_query` fires exactly once per user. **Also:** Better Auth `session.cookieCache` enabled + KV revocation-set check on every session read (DESIGN §4.3, §4.5). Pair lands together — cookie cache without the revocation hook would regress the "≤2s revocation" guarantee. Drops `nlqdb.auth.verify` from D1-bound (~30 ms p99) to HMAC + KV (~6 ms p99). |
 | 7 — Stripe webhook    | `nlqdb.webhook.stripe`, `nlqdb.events.emit`            | `nlqdb.requests.total{route="/v1/stripe/webhook"}`               | signature verify span emitted; `subscription.created` / `subscription.canceled` / `trial.expired` map 1:1 to events fired into the sink (asserted with stub sink). |
 
 The **OTel SDK + OTLP exporter** lands as part of Slice 3 (one-time

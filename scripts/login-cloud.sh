@@ -120,13 +120,15 @@ resource, paste the resulting value into .envrc.
 
   GitHub OAuth   https://github.com/organizations/nlqdb/settings/applications/new
                  Homepage:    https://nlqdb.com
-                 Callback:    https://app.nlqdb.com/auth/callback/github
+                 Callback:    https://app.nlqdb.com/api/auth/callback/github
                               (one URL per app — separate nlqdb-web-dev
-                              for localhost when auth code lands)
+                              with http://localhost:8787/api/auth/callback/github
+                              for Wrangler dev)
                  → OAUTH_GITHUB_CLIENT_ID, OAUTH_GITHUB_CLIENT_SECRET
 
   Google OAuth   https://console.cloud.google.com/apis/credentials
-                 Same callback set as GitHub.
+                 Callback:    https://app.nlqdb.com/api/auth/callback/google
+                              + http://localhost:8787/api/auth/callback/google
                  → GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 After populating .envrc, run `direnv allow` and you're good for local dev.

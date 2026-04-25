@@ -6,6 +6,13 @@ compatibility_flags = ["nodejs_compat"]
 [observability]
 enabled = true
 
+# Public, non-secret config. NODE_ENV switches Better Auth between the
+# `OAUTH_GITHUB_*` (prod) and `OAUTH_GITHUB_*_DEV` (Wrangler dev) credential
+# pairs at module load (apps/api/src/auth.ts). `wrangler dev` overrides this
+# to "development" via .dev.vars (gitignored; copy from .dev.vars.example).
+[vars]
+NODE_ENV = "production"
+
 # Resources provisioned by `scripts/provision-cf-resources.sh`. The
 # script fills in resolved IDs idempotently — IDs are public identifiers
 # (account-scoped), not secrets, and are committed for deterministic
