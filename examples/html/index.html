@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orders — nlqdb</title>
+    <script src="https://elements.nlqdb.com/v1.js" type="module"></script>
+  </head>
+  <body>
+    <h1>Today's orders</h1>
+
+    <nlq-data
+      goal="today's orders, newest first"
+      api-key="pk_live_REPLACE_ME"
+      template="table"
+      refresh="5s"
+    ></nlq-data>
+
+    <h2>Add one</h2>
+    <form>
+      <input name="customer" placeholder="customer" required />
+      <input name="drink" placeholder="drink" required />
+      <input name="total" placeholder="total" required type="number" step="0.01" />
+      <nlq-action
+        goal="add an order from this form"
+        api-key="pk_live_REPLACE_ME"
+        on-success="reload"
+        >Add order</nlq-action
+      >
+    </form>
+  </body>
+</html>

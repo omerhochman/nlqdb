@@ -1,0 +1,26 @@
+---
+// src/pages/index.astro — Astro 4+.
+//
+// Astro server-renders by default. Custom elements work natively;
+// the script tag in <head> upgrades them on the client.
+const apiKey = import.meta.env.PUBLIC_NLQDB_KEY ?? "pk_live_REPLACE_ME";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Orders — nlqdb</title>
+    <script src="https://elements.nlqdb.com/v1.js" type="module" is:inline></script>
+  </head>
+  <body>
+    <main>
+      <h1>Today's orders</h1>
+      <nlq-data
+        goal="today's orders, newest first"
+        api-key={apiKey}
+        template="table"
+        refresh="5s"
+      ></nlq-data>
+    </main>
+  </body>
+</html>

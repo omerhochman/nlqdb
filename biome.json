@@ -29,7 +29,8 @@
       "!**/.turbo",
       "!**/coverage",
       "!**/cli/bin",
-      "!**/cli/dist"
+      "!**/cli/dist",
+      "!**/examples"
     ]
   },
   "formatter": {

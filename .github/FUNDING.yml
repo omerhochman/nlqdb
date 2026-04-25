@@ -1,0 +1,13 @@
+# Sponsorship targets surfaced by GitHub on the repository page.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# Notes:
+# - GitHub Sponsors does NOT require an OSI-approved license, so the
+#   project's FSL-1.1-ALv2 license is fine.
+# - `github:` is the founder's personal handle until a `nlqdb` GitHub
+#   Sponsors profile is set up at the organization level.
+
+github: [omerhochman]
+# open_collective:
+# polar:
+# custom: ['https://nlqdb.com/sponsor']
