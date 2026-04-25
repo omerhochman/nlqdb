@@ -7,6 +7,7 @@ harder to operate.
 
 - [DESIGN.md](./DESIGN.md) — why the architecture looks this way.
 - [IMPLEMENTATION.md](./IMPLEMENTATION.md) — phased plan + prereqs.
+- [PERFORMANCE.md](./PERFORMANCE.md) — SLOs, latency budgets, span/metric catalog.
 - **this file** — what's actually set up right now.
 
 **Last verified: 2026-04-24.** Running `./scripts/verify-secrets.sh`

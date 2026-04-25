@@ -493,6 +493,11 @@ partnerships pre-PMF, AppSumo lifetime deals, gated content.
 **Sentry** (5k errors/mo free), **OpenTelemetry** → **Grafana Cloud**
 free for traces. PostHog only if Plausible isn't enough (likely Phase 2).
 
+Concrete SLOs, per-stage latency budgets, span/metric/label catalog,
+sampling rules, and the slice-by-slice instrumentation plan live in
+[`PERFORMANCE.md`](./PERFORMANCE.md) — that's the load-bearing doc for
+the "fast" promise.
+
 ---
 
 ## 6. Pricing — freemium done honestly

@@ -278,6 +278,12 @@ Cloud for Startups / Modal startup credits.
       `metrics:write` + `logs:write` + `traces:write`. Live-verified
       via empty OTLP envelope POST (HTTP 200/400/415 = auth accepted).
 
+SLOs, per-stage latency budgets, span/metric catalog, sampling rules,
+and the slice-by-slice instrumentation hooks live in
+[`PERFORMANCE.md`](./PERFORMANCE.md). Slice 3 (Neon adapter) is the
+first slice that emits OTel spans — it must ship the SDK + exporter
+wiring per `PERFORMANCE.md §4`.
+
 ### 2.7 Secret management
 
 Three concentric scopes:
