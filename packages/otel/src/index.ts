@@ -146,11 +146,15 @@ export function resetTelemetryForTest(): void {
   active = undefined;
 }
 
-// Lazy histogram instrument for the DB adapter. Created on first use
-// from the global meter — works whether setup landed via setupTelemetry,
-// installTelemetryForTest, or (no-op) before any setup.
-let _dbDurationMs: ReturnType<ReturnType<typeof metrics.getMeter>["createHistogram"]> | undefined;
-export function dbDurationMs() {
+// Lazy instruments — created on first use from the global meter.
+// Works whether setup landed via setupTelemetry, installTelemetryForTest,
+// or (no-op) before any setup. Names + labels pinned in PERFORMANCE §3.2.
+
+type Histogram = ReturnType<ReturnType<typeof metrics.getMeter>["createHistogram"]>;
+type Counter = ReturnType<ReturnType<typeof metrics.getMeter>["createCounter"]>;
+
+let _dbDurationMs: Histogram | undefined;
+export function dbDurationMs(): Histogram {
   if (!_dbDurationMs) {
     _dbDurationMs = metrics.getMeter("@nlqdb/db").createHistogram("nlqdb.db.duration_ms", {
       description: "Duration of DB queries, in milliseconds.",
@@ -160,6 +164,40 @@ export function dbDurationMs() {
   return _dbDurationMs;
 }
 
+let _llmCallsTotal: Counter | undefined;
+export function llmCallsTotal(): Counter {
+  if (!_llmCallsTotal) {
+    _llmCallsTotal = metrics.getMeter("@nlqdb/llm").createCounter("nlqdb.llm.calls.total", {
+      description: "LLM calls, labelled by provider, operation, status.",
+    });
+  }
+  return _llmCallsTotal;
+}
+
+let _llmDurationMs: Histogram | undefined;
+export function llmDurationMs(): Histogram {
+  if (!_llmDurationMs) {
+    _llmDurationMs = metrics.getMeter("@nlqdb/llm").createHistogram("nlqdb.llm.duration_ms", {
+      description: "Duration of LLM calls, in milliseconds.",
+      unit: "ms",
+    });
+  }
+  return _llmDurationMs;
+}
+
+let _llmFailoverTotal: Counter | undefined;
+export function llmFailoverTotal(): Counter {
+  if (!_llmFailoverTotal) {
+    _llmFailoverTotal = metrics.getMeter("@nlqdb/llm").createCounter("nlqdb.llm.failover.total", {
+      description: "Provider-chain failovers, labelled by from_provider, to_provider, reason.",
+    });
+  }
+  return _llmFailoverTotal;
+}
+
 export function resetInstrumentsForTest(): void {
   _dbDurationMs = undefined;
+  _llmCallsTotal = undefined;
+  _llmDurationMs = undefined;
+  _llmFailoverTotal = undefined;
 }

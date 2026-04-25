@@ -221,9 +221,11 @@ the failure path (Basic auth rejected = wrong id or secret).
 ### `apps/api` (Phase 0 §3 — in progress)
 
 Cloudflare Worker `nlqdb-api`. Slice 1 shipped `/v1/health`; Slice 2
-added KV + D1 bindings (R2 deferred); Slice 3 lands the Neon adapter
+added KV + D1 bindings (R2 deferred); Slice 3 added the Neon adapter
 (`packages/db`), the OTel SDK + OTLP exporters (`packages/otel`), and
-the first D1 migration. Deploys via `wrangler deploy` from
+the first D1 migration; Slice 4 lands the strict-$0 LLM router
+(`packages/llm`) — Groq + Gemini + Workers AI + OpenRouter behind a
+cost-ordered failover chain. Deploys via `wrangler deploy` from
 `apps/api/`. Resource IDs are committed in `apps/api/wrangler.toml`
 (account-scoped, not secret).
 
@@ -257,6 +259,15 @@ request (idempotent) when `GRAFANA_OTLP_ENDPOINT` and
 `GRAFANA_OTLP_AUTHORIZATION` are set as Worker secrets, and flushes
 spans + metrics via `ctx.waitUntil(forceFlush())`. Without those
 secrets the Worker is a no-op telemetry-wise — fine for local dev.
+
+**LLM provider chain**: `packages/llm` reads four secrets at
+request time — `GROQ_API_KEY`, `GEMINI_API_KEY`, `CF_AI_TOKEN`
+(+ `CLOUDFLARE_ACCOUNT_ID`), `OPENROUTER_API_KEY`. Per-operation
+chains are baked in as defaults (DESIGN §8.1) and will become
+env-overridable when the router is wired into `/v1/ask` in Slice 6.
+A provider listed in a chain but missing its key is simply skipped
+and increments `nlqdb.llm.failover.total{reason="not_configured"}`
+— the next provider in the chain handles the call.
 
 ---
 

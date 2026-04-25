@@ -104,6 +104,59 @@ Examples that pass:
 - `scripts/migrate-d1.sh local|remote` — one positional arg, no
   flags to memorise.
 
+## 5. Logs tell a story, not the novel
+
+An operator opening logs cold should be able to read down the
+timeline and answer: **what was attempted, where did we land, what
+failed and why**. Nothing more.
+
+The non-negotiables:
+
+- **One useful line per decision point.** Not per iteration, not per
+  function entry. A failover happened? One line. A provider's API
+  key wasn't configured at boot? One line. The chain is exhausted?
+  One line with the per-attempt summary.
+- **Errors get structured context.** Not `Error: failed`. Include
+  the *what* (operation, provider, URL), the *why* (status code,
+  upstream message, truncated body), and any actionable next step.
+  `POST https://api.groq.com/v1/chat/completions → 429: rate limit
+  exceeded, retry in 60s` beats `http error`.
+- **Successes don't need logs.** Spans + metrics already tell that
+  story. If you're tempted to log "got response", it's because you
+  don't trust the trace — fix the trace.
+- **Hot paths log at most once per request, and only on failure.**
+  A `/v1/ask` that succeeds emits zero application logs. Spans cover
+  the timeline; metrics cover the rates.
+- **Never log secrets, full prompts, full result rows, or PII.**
+  Tenant IDs and request IDs only. Truncate any user input or
+  upstream body to ~200 chars before it lands in a log line — if
+  the truncation hides the issue, raise the cap deliberately, don't
+  log unbounded.
+- **Use levels honestly.** `info` = something an operator should
+  notice but not act on. `warn` = something they should look at this
+  week. `error` = something they should look at now. `debug` = off
+  in production, used during local development only.
+
+Symptoms of getting this wrong:
+
+- Two log lines for one event ("trying X" + "X failed"). Collapse
+  into one — the trace shows the attempt; the log records the
+  outcome.
+- Logs that recapitulate metric labels (`{provider: groq, op: plan,
+  status: ok}` lines on every successful call). The metric *is* the
+  data; the log is for what the metric can't carry.
+- Per-token / per-row logging. If you're loop-logging, you're
+  building a metric badly — emit a counter, not log lines.
+- "Just-in-case" debug noise left at `info` after a fix landed.
+
+A good rule of thumb: when you read your own logs after a quiet
+hour, you should see **exactly one entry per significant unexpected
+event** — and that entry should tell you what happened. If the logs
+during a quiet hour are empty, the system is healthy and the trace
+viewer is where you go for detail. If they're full of routine
+chatter, the chatter is hiding the actual signal next time something
+breaks.
+
 ---
 
 This file pairs with [`CONTRIBUTING.md`](./CONTRIBUTING.md) (mechanics:

@@ -4,14 +4,14 @@ Phase 0 §3. Houses `POST /v1/ask` (DESIGN §4.1), auth endpoints
 (`/v1/auth/{device, device/token, refresh, logout}`, DESIGN §4.3), and
 key-management endpoints (DESIGN §4.5).
 
-## Current state — through Slice 3
+## Current state — through Slice 4
 
 `GET /v1/health` returns `{status, version, timestamp, bindings}` —
 binding presence is reflected as booleans. Bindings are typed but
 not yet exercised by handler code; they'll be hit when `/v1/ask`
 lands in Slice 6.
 
-The Worker's `fetch` handler now installs OpenTelemetry on every
+The Worker's `fetch` handler installs OpenTelemetry on every
 request when `GRAFANA_OTLP_ENDPOINT` + `GRAFANA_OTLP_AUTHORIZATION`
 are set, and flushes via `ctx.waitUntil(forceFlush())` before the
 isolate ends. Setup is idempotent — see [`@nlqdb/otel`](../../packages/otel/README.md).
@@ -20,6 +20,12 @@ The Postgres adapter ([`@nlqdb/db`](../../packages/db/README.md)) is
 ready to be called from a future handler. It emits a `db.query` span
 and records into the `nlqdb.db.duration_ms` histogram per
 [PERFORMANCE §3](../../PERFORMANCE.md#3-span--metric--label-catalog).
+
+The LLM router ([`@nlqdb/llm`](../../packages/llm/README.md)) ships
+the strict-$0 provider chain: Groq + Gemini + Cloudflare Workers AI
++ OpenRouter, with cost-ordered failover and the `llm.<op>` /
+`nlqdb.llm.*` telemetry from PERFORMANCE §3. Slice 6 will wire it
+into `/v1/ask`.
 
 **Bindings:**
 
@@ -74,7 +80,6 @@ bun --cwd apps/api run deploy     # uses CLOUDFLARE_API_TOKEN + _ACCOUNT_ID
 
 ## Coming up
 
-- Slice 4: LLM router (`packages/llm`) — provider chain, plan-cache hits read KV.
 - Slice 5: Better Auth scaffold + `/auth/callback/github` (uses both `OAUTH_GITHUB_*` prod and `_DEV` pairs).
-- Slice 6: `/v1/ask` end-to-end.
+- Slice 6: `/v1/ask` end-to-end — wires `@nlqdb/llm` + `@nlqdb/db` + the KV plan cache.
 - Slice 7: Workers-secret mirror + Stripe webhook + R2 enable.

@@ -157,7 +157,7 @@ jobs:
     timeout-minutes: 5
     strategy:
       matrix:
-        pkg: [db, otel]
+        pkg: [db, llm, otel]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4

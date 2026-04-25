@@ -40,6 +40,18 @@
         "vitest": "^3.2.0",
       },
     },
+    "packages/llm": {
+      "name": "@nlqdb/llm",
+      "version": "0.0.0",
+      "dependencies": {
+        "@nlqdb/otel": "workspace:*",
+        "@opentelemetry/api": "^1.9.0",
+      },
+      "devDependencies": {
+        "typescript": "^5.6.0",
+        "vitest": "^3.2.0",
+      },
+    },
     "packages/otel": {
       "name": "@nlqdb/otel",
       "version": "0.0.0",
@@ -212,6 +224,8 @@
     "@nlqdb/coming-soon": ["@nlqdb/coming-soon@workspace:apps/coming-soon"],
 
     "@nlqdb/db": ["@nlqdb/db@workspace:packages/db"],
+
+    "@nlqdb/llm": ["@nlqdb/llm@workspace:packages/llm"],
 
     "@nlqdb/otel": ["@nlqdb/otel@workspace:packages/otel"],
 
