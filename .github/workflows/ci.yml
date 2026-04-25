@@ -151,6 +151,32 @@ jobs:
         working-directory: apps/api
         run: bun run build
 
+  test-pkgs:
+    name: packages/${{ matrix.pkg }} (typecheck + vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        pkg: [db, otel]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: packages/${{ matrix.pkg }}
+        run: bun run typecheck
+
+      - name: Test
+        working-directory: packages/${{ matrix.pkg }}
+        run: bun run test
+
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest

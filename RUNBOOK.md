@@ -221,9 +221,11 @@ the failure path (Basic auth rejected = wrong id or secret).
 ### `apps/api` (Phase 0 §3 — in progress)
 
 Cloudflare Worker `nlqdb-api`. Slice 1 shipped `/v1/health`; Slice 2
-adds KV + D1 bindings (R2 deferred). Deploys via `wrangler deploy`
-from `apps/api/`. Resource IDs are committed in
-`apps/api/wrangler.toml` (account-scoped, not secret).
+added KV + D1 bindings (R2 deferred); Slice 3 lands the Neon adapter
+(`packages/db`), the OTel SDK + OTLP exporters (`packages/otel`), and
+the first D1 migration. Deploys via `wrangler deploy` from
+`apps/api/`. Resource IDs are committed in `apps/api/wrangler.toml`
+(account-scoped, not secret).
 
 **Cloudflare resources** (provisioned by
 `scripts/provision-cf-resources.sh`, idempotent):
@@ -236,6 +238,25 @@ from `apps/api/`. Resource IDs are committed in
 
 Re-running the provision script is safe — existing resources are
 detected by name and skipped.
+
+**D1 migrations** live in `apps/api/migrations/` and are tracked by
+wrangler in the `d1_migrations` table inside the D1 DB itself.
+Idempotent wrappers:
+
+```bash
+scripts/migrate-d1.sh local    # ~/.wrangler local SQLite (no auth)
+scripts/migrate-d1.sh remote   # production D1 (needs CLOUDFLARE_*)
+```
+
+The first migration (`0001_init.sql`) creates the `databases` table —
+the tenant → Neon connection registry that `/v1/ask` will read in
+Slice 6.
+
+**Telemetry**: `apps/api`'s Worker installs the OTel SDK on every
+request (idempotent) when `GRAFANA_OTLP_ENDPOINT` and
+`GRAFANA_OTLP_AUTHORIZATION` are set as Worker secrets, and flushes
+spans + metrics via `ctx.waitUntil(forceFlush())`. Without those
+secrets the Worker is a no-op telemetry-wise — fine for local dev.
 
 ---
 

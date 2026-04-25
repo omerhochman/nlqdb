@@ -22,5 +22,6 @@ id = "5b086b03ead54f508271f31fc421bbaa"
 binding = "DB"
 database_name = "nlqdb-app"
 database_id = "98767eb0-65df-4787-87bf-c3952d851b29"
+migrations_dir = "migrations"
 
 # Future routes (post-domain mapping): app.nlqdb.com/v1/*.

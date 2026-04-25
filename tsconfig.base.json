@@ -16,6 +16,7 @@
     "noPropertyAccessFromIndexSignature": true,
 
     "allowJs": false,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "isolatedModules": true,

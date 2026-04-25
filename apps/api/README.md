@@ -4,11 +4,22 @@ Phase 0 §3. Houses `POST /v1/ask` (DESIGN §4.1), auth endpoints
 (`/v1/auth/{device, device/token, refresh, logout}`, DESIGN §4.3), and
 key-management endpoints (DESIGN §4.5).
 
-## Current state — through Slice 2
+## Current state — through Slice 3
 
 `GET /v1/health` returns `{status, version, timestamp, bindings}` —
 binding presence is reflected as booleans. Bindings are typed but
-not yet exercised by handler code; they'll be hit in Slice 3+.
+not yet exercised by handler code; they'll be hit when `/v1/ask`
+lands in Slice 6.
+
+The Worker's `fetch` handler now installs OpenTelemetry on every
+request when `GRAFANA_OTLP_ENDPOINT` + `GRAFANA_OTLP_AUTHORIZATION`
+are set, and flushes via `ctx.waitUntil(forceFlush())` before the
+isolate ends. Setup is idempotent — see [`@nlqdb/otel`](../../packages/otel/README.md).
+
+The Postgres adapter ([`@nlqdb/db`](../../packages/db/README.md)) is
+ready to be called from a future handler. It emits a `db.query` span
+and records into the `nlqdb.db.duration_ms` histogram per
+[PERFORMANCE §3](../../PERFORMANCE.md#3-span--metric--label-catalog).
 
 **Bindings:**
 
@@ -22,7 +33,7 @@ the Cloudflare dashboard to enable the R2 service, and isn't on
 `/v1/ask`'s critical path. Lands when blob storage is exercised.
 
 Tests use plain Vitest 3 importing the worker handler directly with
-mock binding objects. Slice 3+ swaps to `@cloudflare/vitest-pool-workers`
+mock binding objects. Slice 4+ swaps to `@cloudflare/vitest-pool-workers`
 / Miniflare for real binding behaviour.
 
 ## Local dev
@@ -40,6 +51,21 @@ bun --cwd apps/api run build      # wrangler deploy --dry-run
 ./scripts/provision-cf-resources.sh   # idempotent: creates KV/D1, fills wrangler.toml IDs
 ```
 
+## D1 migrations
+
+Migrations live in [`migrations/`](./migrations) and are tracked by
+wrangler in the `d1_migrations` table inside the D1 database itself
+(idempotent — re-running is a no-op on already-applied migrations).
+
+```bash
+bun --cwd apps/api run migrate:local    # local SQLite under .wrangler/
+bun --cwd apps/api run migrate:remote   # production D1 — needs CLOUDFLARE_*
+```
+
+Add a new migration with `wrangler d1 migrations create nlqdb-app <name>`
+from `apps/api/`. Migrations are append-only — never edit a committed
+SQL file.
+
 ## Deploy
 
 ```bash
@@ -48,7 +74,6 @@ bun --cwd apps/api run deploy     # uses CLOUDFLARE_API_TOKEN + _ACCOUNT_ID
 
 ## Coming up
 
-- Slice 3: Neon adapter (`packages/db`) + first D1 migration for app state.
 - Slice 4: LLM router (`packages/llm`) — provider chain, plan-cache hits read KV.
 - Slice 5: Better Auth scaffold + `/auth/callback/github` (uses both `OAUTH_GITHUB_*` prod and `_DEV` pairs).
 - Slice 6: `/v1/ask` end-to-end.
