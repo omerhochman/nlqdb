@@ -1,0 +1,22 @@
+{
+  "name": "@nlqdb/web",
+  "private": true,
+  "version": "0.0.0",
+  "description": "nlqdb marketing site (nlqdb.com) — static Astro on Cloudflare Pages.",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "deploy": "astro build && wrangler pages deploy dist --project-name=nlqdb-web"
+  },
+  "dependencies": {
+    "astro": "^5.0.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,67 @@
+---
+// Goal-first hero (DESIGN §0.1, §3.1, §14.1). The input cycles real
+// persona placeholders. Enter is a no-op until the chat surface at
+// app.nlqdb.com lands — no broken promises while we ship the rest.
+
+const placeholders = [
+  "an orders tracker for my coffee shop",
+  "a memory store for my AI agent",
+  "a CRM for two-person startups",
+  "a leaderboard for our internal hackathon",
+  "a feedback inbox with auto-tags",
+];
+---
+<section class="hero">
+  <h1 class="hero__wordmark">nlqdb</h1>
+  <p class="hero__lede">Natural-language databases.</p>
+  <p class="hero__sub">
+    Create one in a word. Talk to it in English. The schema, the engine,
+    the indexes, the backups — all invisible. The escape hatch to raw
+    SQL stays one click away, always.
+  </p>
+
+  <form class="heroinput" data-hero-form>
+    <input
+      type="text"
+      class="heroinput__field"
+      data-hero-input
+      placeholder={placeholders[0]}
+      autocomplete="off"
+      autocapitalize="off"
+      spellcheck="false"
+      aria-label="What are you building?"
+    />
+    <span class="heroinput__return" aria-hidden="true">⏎</span>
+  </form>
+
+  <p class="heroinput__note">
+    <span class="dot" aria-hidden="true"></span>
+    Pre-alpha — Phase 0 shipped, Phase 1 in progress.
+  </p>
+
+  <div class="ctas">
+    <a class="btn btn--accent" href="mailto:hello@nlqdb.com">
+      Get in touch
+    </a>
+  </div>
+</section>
+
+<script is:inline define:vars={{ placeholders }}>
+  const input = document.querySelector("[data-hero-input]");
+  const form = document.querySelector("[data-hero-form]");
+
+  if (input instanceof HTMLInputElement) {
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduced) {
+      let i = 0;
+      setInterval(() => {
+        i = (i + 1) % placeholders.length;
+        if (input.value === "") input.placeholder = placeholders[i];
+      }, 2800);
+    }
+  }
+
+  if (form instanceof HTMLFormElement) {
+    form.addEventListener("submit", (e) => e.preventDefault());
+  }
+</script>

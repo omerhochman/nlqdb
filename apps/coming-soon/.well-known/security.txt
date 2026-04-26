@@ -3,9 +3,7 @@
 # Please report responsibly. See the Policy URL for full terms.
 
 Contact: mailto:security@nlqdb.com
-Contact: https://github.com/nlqdb/nlqdb/security/advisories/new
 Expires: 2027-04-25T00:00:00.000Z
 Preferred-Languages: en, de, fr, he
 Canonical: https://nlqdb.com/.well-known/security.txt
-Policy: https://github.com/nlqdb/nlqdb/blob/main/SECURITY.md
 Acknowledgments: https://nlqdb.com/security/hall-of-fame

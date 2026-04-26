@@ -1,0 +1,30 @@
+---
+import Hero from "../components/Hero.astro";
+import Base from "../layouts/Base.astro";
+---
+<Base
+  title="nlqdb — natural-language databases"
+  description="Create a database in a word. Query it in English. Schema, engine, indexes, and backups stay invisible — unless you want to see them."
+>
+  <div class="page">
+    <header class="topnav">
+      <a class="topnav__brand" href="/">nlqdb</a>
+      <nav class="topnav__links" aria-label="Primary">
+        <a href="mailto:hello@nlqdb.com">Contact</a>
+      </nav>
+    </header>
+
+    <main>
+      <Hero />
+    </main>
+
+    <footer class="foot">
+      <span>&copy; nlqdb &middot; Pre-alpha</span>
+      <span>
+        <a href="https://nlqdb.com/privacy">Privacy</a>
+        &middot;
+        <a href="https://nlqdb.com/terms">Terms</a>
+      </span>
+    </footer>
+  </div>
+</Base>

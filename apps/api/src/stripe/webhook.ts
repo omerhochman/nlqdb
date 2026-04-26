@@ -23,8 +23,9 @@
 //   - Dispatch failure AFTER successful insert → 200 (event recorded;
 //     reprocess via Stripe Dashboard "Resend" if needed). The span
 //     captures the exception.
-//   - R2 archive failure → silent (best-effort); span attribute
-//     `nlqdb.webhook.archived=false` makes drops queryable.
+//   - R2 archive failure → counter
+//     `nlqdb.webhook.stripe.archive_failures.total` + warn log
+//     (fire-and-forget; parent span has ended).
 //
 // No `trial.*` events emitted — PLAN §5.3 has no Stripe-side trial
 // period. The `subscription.updated` handler doesn't synthesize a

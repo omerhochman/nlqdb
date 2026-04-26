@@ -1,0 +1,25 @@
+# nlqdb
+
+> Natural-language databases. Create one in a word. Query it in English.
+> The schema, the engine, the indexes, and the backups stay invisible —
+> unless you want to see them.
+
+nlqdb inverts the usual database experience. Instead of choosing a
+schema, an engine, and a set of indexes upfront, the user states a goal
+in English and the system materializes the database that fits the
+workload, migrating engines underneath as the workload evolves.
+
+## Status
+
+Pre-alpha, closed beta.
+
+- Phase 0 (foundations): shipped — Cloudflare Workers API plane,
+  authentication, billing webhooks, observability, product-event sink.
+- Phase 1 (on-ramp): in progress — Astro marketing site, anonymous
+  72-hour mode, magic-link sign-in, embeddable `<nlq-data>` v0.
+
+The source repository is private during pre-alpha.
+
+## Contact
+
+Email: hello@nlqdb.com

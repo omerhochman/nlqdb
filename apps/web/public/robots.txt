@@ -1,0 +1,26 @@
+# AI-permissive — DESIGN §3.1 (AEO/GEO). We want citations from
+# Perplexity / ChatGPT / Gemini / Claude as a primary acquisition
+# channel.
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: *
+Allow: /
+
+Sitemap: https://nlqdb.com/sitemap.xml

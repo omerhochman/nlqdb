@@ -177,6 +177,28 @@ jobs:
         working-directory: packages/${{ matrix.pkg }}
         run: bun run test
 
+  build-web:
+    name: apps/web (astro check + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+
+      - name: Astro check
+        working-directory: apps/web
+        run: bun run check
+
+      - name: Astro build
+        working-directory: apps/web
+        run: bun run build
+
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
