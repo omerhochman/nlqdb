@@ -26,8 +26,8 @@ should return 21/21 green (or more, as provisioning expands).
 | Alt apex                    | https://nlqdb.ai                    | 301 → `https://nlqdb.com/`     |
 | Alt www                     | https://www.nlqdb.ai                | 301 → `https://nlqdb.com/…`    |
 | Pages deployment URL        | https://nlqdb-coming-soon.pages.dev | 200 (same content as nlqdb.com)|
-
-No runtime services yet — Phase 0 `apps/api` hasn't shipped.
+| `nlqdb-api` health          | https://app.nlqdb.com/v1/health     | 200; bindings `kv` + `db` green |
+| `nlqdb-api` auth            | https://app.nlqdb.com/api/auth/*    | Better Auth — GitHub + Google verified live |
 
 ---
 
@@ -237,16 +237,35 @@ the failure path (Basic auth rejected = wrong id or secret).
 
 ### `apps/api` (Phase 0 §3 — in progress)
 
-Cloudflare Worker `nlqdb-api`. Slice 1 shipped `/v1/health`; Slice 2
+Cloudflare Worker `nlqdb-api` at **`app.nlqdb.com`** (custom domain
+managed by `[[routes]] custom_domain = true` in `wrangler.toml` —
+wrangler creates the proxied DNS record + Universal SSL cert on first
+deploy, idempotent thereafter). Slice 1 shipped `/v1/health`; Slice 2
 added KV + D1 bindings (R2 deferred); Slice 3 added the Neon adapter
 (`packages/db`), the OTel SDK + OTLP exporters (`packages/otel`), and
 the first D1 migration; Slice 4 landed the strict-$0 LLM router
 (`packages/llm`) — Groq + Gemini + Workers AI + OpenRouter behind a
 cost-ordered failover chain; Slice 5 wires Better Auth at
 `/api/auth/*` with GitHub + Google social providers, backed by D1
-(four tables in `migrations/0002_better_auth.sql`). Deploys via
-`wrangler deploy` from `apps/api/`. Resource IDs are committed in
-`apps/api/wrangler.toml` (account-scoped, not secret).
+(four tables in `migrations/0002_better_auth.sql`). Resource IDs are
+committed in `apps/api/wrangler.toml` (account-scoped, not secret).
+
+**First deploy from a clean Cloudflare account** (or after any new
+schema / new secret) requires **three** steps in order — `wrangler
+deploy` alone ships the code but neither pushes secrets nor applies
+migrations to remote D1:
+
+```bash
+(cd apps/api && bun run secrets:remote)   # mirror .envrc → Worker secrets
+(cd apps/api && bun run migrate:remote)   # apply migrations/* to remote D1
+(cd apps/api && bun run deploy)           # wrangler deploy
+```
+
+All three are idempotent — safe to re-run on every deploy. Skip
+`secrets:remote` only if `.envrc` hasn't changed; skip `migrate:remote`
+only if no new files in `apps/api/migrations/`. The `app.nlqdb.com`
+custom-domain attach happens once on first `deploy` and is a no-op
+thereafter.
 
 **Cloudflare resources** (provisioned by
 `scripts/provision-cf-resources.sh`, idempotent):

@@ -457,9 +457,12 @@ What we should **not** reinvent:
 
 See [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) for the phased, actionable
 plan. High level: Phase 0 stands up the Cloudflare stack + Better Auth +
-Neon + LLM router; Phase 1 ships the marketing site + chat + anonymous
-mode + `<nlq-data>` v0 + "Copy starter HTML"; Phase 2 ships CLI + MCP +
-CSV upload + Stripe live. Five design partners recruited deliberately
+Neon + LLM router (API plane only — no public sign-in UI yet, by design;
+auth ships ahead of its UI so Phase 1 wires buttons to a known-good
+surface). Phase 1 ships the marketing site + chat + anonymous mode +
+`<nlq-data>` v0 + "Copy starter HTML" — the first phase a real end user
+can onboard through. Phase 2 ships CLI + MCP + CSV upload + Stripe live.
+Five design partners recruited deliberately
 (one per persona in [`PERSONAS.md`](./PERSONAS.md)) — Free Pro for 12
 months in exchange for 2 calls/month.
 

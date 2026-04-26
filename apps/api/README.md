@@ -114,3 +114,7 @@ bun --cwd apps/api run deploy          # uses CLOUDFLARE_API_TOKEN + _ACCOUNT_ID
 
 - Slice 6: `/v1/ask` end-to-end — wires `@nlqdb/llm` + `@nlqdb/db` + the KV plan cache.
 - Slice 7: Stripe webhook + R2 enable.
+- **Phase 1 (`apps/web`, Astro):** opens this auth surface to end users —
+  sign-in page (`/sign-in?return_to=…` per DESIGN §4.3), post-callback
+  landing, anonymous-mode → adoption flow (DESIGN §14). Until then,
+  `/api/auth/*` is API-only; `app.nlqdb.com/` 404s by design.

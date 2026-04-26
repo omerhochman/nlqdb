@@ -412,6 +412,15 @@ Commit-message policy: **Conventional Commits** (enforced by lefthook
 - `POST /v1/ask` end-to-end (goal → DB → schema inferred → row
   inserted/queried → response). Internal.
 
+**No public onboarding in Phase 0 by design.** The auth surface ships at
+`/api/auth/*` (Better Auth, GitHub + Google) and the device endpoints at
+`/v1/auth/*` (CLI), but neither has a user-facing entry — `app.nlqdb.com/`
+404s, and `/sign-in?return_to=…` (DESIGN §4.3) is owned by Phase 1's
+`apps/web`. The auth API lands ahead of its UI so Phase 1 can wire
+sign-in buttons to a known-good surface; verifiable today via a browser
+console fetch to `/api/auth/sign-in/social` followed by the OAuth
+callback.
+
 **Exit gate:** curl to `/v1/ask` returns a real answer from real Postgres
 in <2s p50; reusable CI goes green in <90s on a trivial PR; provider
 chain exercised with forced failover; $0 spent.

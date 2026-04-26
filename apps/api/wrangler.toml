@@ -31,4 +31,10 @@ database_name = "nlqdb-app"
 database_id = "98767eb0-65df-4787-87bf-c3952d851b29"
 migrations_dir = "migrations"
 
-# Future routes (post-domain mapping): app.nlqdb.com/v1/*.
+# `custom_domain = true` (vs `pattern + zone_name`) gives the worker
+# exclusive ownership of `app.nlqdb.com` and lets wrangler create the
+# DNS record + provision the cert on first deploy. OAuth callbacks in
+# RUNBOOK §5/§5b are registered against this hostname.
+[[routes]]
+pattern = "app.nlqdb.com"
+custom_domain = true
