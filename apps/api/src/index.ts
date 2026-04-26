@@ -9,7 +9,7 @@ import { makeFirstQueryTracker } from "./ask/first-query.ts";
 import { orchestrateAsk } from "./ask/orchestrate.ts";
 import { makePlanCache } from "./ask/plan-cache.ts";
 import { makeRateLimiter } from "./ask/rate-limit.ts";
-import { DbConfigError, type DbRecord, type OrchestrateEvent } from "./ask/types.ts";
+import { type AskError, DbConfigError, type DbRecord, type OrchestrateEvent } from "./ask/types.ts";
 import { auth, REVOCATION_KEY_PREFIX } from "./auth.ts";
 import { resolveDb } from "./db-registry.ts";
 import { getLLMRouter } from "./llm-router.ts";
@@ -17,22 +17,12 @@ import { makeRequireSession, type RequireSessionVariables } from "./middleware.t
 import { cryptoProvider, stripe as stripeClient } from "./stripe/client.ts";
 import { processWebhook } from "./stripe/webhook.ts";
 
-type Bindings = {
-  KV: KVNamespace;
-  DB: D1Database;
-  EVENTS_QUEUE?: Queue;
-  ASSETS?: R2Bucket;
-  // Telemetry: both must be set to ship to Grafana Cloud OTLP.
-  // Locally these are empty, so setup is skipped — the test suite
-  // installs an in-memory exporter instead (see @nlqdb/otel/test).
-  GRAFANA_OTLP_ENDPOINT?: string;
-  GRAFANA_OTLP_AUTHORIZATION?: string;
-  STRIPE_WEBHOOK_SECRET?: string;
-};
-
 const SERVICE_VERSION = "0.1.0";
 
-const app = new Hono<{ Bindings: Bindings; Variables: RequireSessionVariables }>();
+// `Cloudflare.Env` is augmented in src/env.d.ts — using it directly
+// (rather than a parallel local `Bindings` type) keeps the two from
+// drifting when bindings are added.
+const app = new Hono<{ Bindings: Cloudflare.Env; Variables: RequireSessionVariables }>();
 
 // Session gate for `/v1/*` routes. Captures `auth.api.getSession`
 // (cookieCache fast path → secondaryStorage → D1) + the KV revocation
@@ -236,13 +226,26 @@ function buildEventEmitter(queue: Queue | undefined): EventEmitter {
   return queue ? makeQueueEmitter(queue) : makeNoopEmitter();
 }
 
-function errorStatus(status: string): 400 | 404 | 429 | 502 {
-  if (status === "db_not_found") return 404;
-  if (status === "rate_limited") return 429;
-  if (status === "db_unreachable" || status === "db_misconfigured" || status === "llm_failed") {
-    return 502;
+// Typed over `AskError["status"]` so adding a new error variant fails
+// the compile here rather than silently falling through to 400. 422
+// for `schema_unavailable` mirrors REST convention for "request was
+// well-formed but the server can't act on it" (the goal+dbId parsed,
+// but introspection couldn't fetch a schema this time).
+function errorStatus(status: AskError["status"]): 400 | 404 | 422 | 429 | 502 {
+  switch (status) {
+    case "db_not_found":
+      return 404;
+    case "rate_limited":
+      return 429;
+    case "schema_unavailable":
+      return 422;
+    case "db_unreachable":
+    case "db_misconfigured":
+    case "llm_failed":
+      return 502;
+    case "sql_rejected":
+      return 400;
   }
-  return 400;
 }
 
 // Better Auth catch-all (DESIGN §4.1, PERFORMANCE §4 row 5).

@@ -249,7 +249,7 @@ Cloud's `/api/dashboards/db` provisioning endpoint from CI on merge
 to `main`. Never edited in the Grafana UI — UI changes are detected
 on the next CI run and the JSON wins.
 
-Initial dashboards (lands in Slice 6 alongside the first `/v1/ask` E2E):
+Initial dashboards (deferred until Phase 1 traffic warrants a tuned view; spans + metrics are already exported via OTLP):
 
 | Dashboard            | What it shows                                                              |
 | :------------------- | :------------------------------------------------------------------------- |

@@ -77,7 +77,7 @@ re-enable via Cloudflare later).
 | Google AI Studio | Existing                  | Free                              | Gemini API key                                     |
 | Groq             | Existing                  | Free                              | —                                                  |
 | OpenRouter       | Existing                  | Free (fallback)                   | —                                                  |
-| Google Cloud     | `omer.hochman@gmail.com`  | Free                              | Project `nlqdb`, OAuth consent screen **Testing**  |
+| Google Cloud     | `omer.hochman@gmail.com`  | Free                              | Project `nlqdb`, OAuth consent screen **In production** |
 | Resend           | `omer.hochman@gmail.com`  | Free (3k emails/mo)               | API key `nlqdb-phase0`; domain verification ⏳ Phase 1 |
 | Stripe           | `omer.hochman@gmail.com`  | Test mode (no card)               | Merchant: Switzerland / CHF; descriptor `NLQDB.COM`; webhook secret ⏳ Phase 0 §3 |
 | Grafana Cloud    | `omer.hochman@gmail.com`  | Free                              | Stack `nlqdb` on `us-east-2`, instance `1609127`, access policy `nlqdb-phase0-telemetry` |
@@ -132,9 +132,11 @@ skips cleanly until `apps/api` exists (Phase 0 §3).
 
 ## 5. Google OAuth — what's configured
 
-Google has a long verification review, so we opened the project early.
-Currently in **Testing** mode; verification submission is a Phase 1
-prereq (waiting on product stability).
+Currently **In production** — anyone with a Google account can sign in.
+Verification only needed if we add sensitive/restricted scopes; the
+`openid` + `userinfo.{email,profile}` set we use is non-sensitive, so
+the consent screen ships unverified-but-public (Google shows an
+"unverified app" warning the first time but allows the flow).
 
 - **GCP project:** `nlqdb`
 - **OAuth consent screen** (Branding tab):
@@ -145,11 +147,11 @@ prereq (waiting on product stability).
   - Privacy policy: https://nlqdb.com/privacy
   - Terms of service: https://nlqdb.com/terms
   - Authorized domain: `nlqdb.com`
-- **Audience:** External, Testing status.
-  - Test users: `omer.hochman@gmail.com` (add more as needed, up to 100)
+- **Audience:** External, Production status.
 - **Data access (scopes):** `openid`, `/auth/userinfo.email`,
-  `/auth/userinfo.profile` — all non-sensitive, no long review needed
-  when we submit for verification.
+  `/auth/userinfo.profile` — all non-sensitive, so the app stays
+  unverified-but-public; verification submission only needed if we
+  later request sensitive scopes (Drive / Gmail / Calendar / etc.).
 - **OAuth 2.0 Client** — Web application named `nlqdb-web`:
   - Authorized JavaScript origins:
     - `https://app.nlqdb.com`
@@ -166,15 +168,12 @@ prereq (waiting on product stability).
   device/token, refresh, logout}` in a later slice (different paths,
   different ownership) — Google's redirect URI list above is OAuth-only.
 
-**Verification submission TODO** (Phase 1):
-
-1. Publish Privacy Policy + Terms (done — PR #12 merged).
-2. Verify domain ownership of `nlqdb.com` via Google Search Console
-   (DNS TXT record in Cloudflare — 2 min).
-3. Add an app logo (min 120×120 PNG).
-4. Switch publishing status from Testing → In Production.
-5. Google reviews; with only non-sensitive scopes it's usually days,
-   not weeks.
+**Re-verification trigger.** Stay in production with the current
+non-sensitive scope set indefinitely. The moment we add a sensitive
+or restricted scope (Drive / Gmail / Calendar / fitness / health), we
+need to submit for verification — Google reviews can take weeks for
+sensitive scopes, longer for restricted. Do not roll a sensitive
+scope into production without budgeting that timeline.
 
 ---
 
@@ -290,8 +289,8 @@ scripts/migrate-d1.sh remote   # production D1 (needs CLOUDFLARE_*)
 ```
 
 The first migration (`0001_init.sql`) creates the `databases` table —
-the tenant → Neon connection registry that `/v1/ask` will read in
-Slice 6.
+the tenant → Neon connection registry `/v1/ask` reads to pick a
+backend per request.
 
 **Telemetry**: `apps/api`'s Worker installs the OTel SDK on every
 request (idempotent) when `GRAFANA_OTLP_ENDPOINT` and
@@ -302,11 +301,11 @@ secrets the Worker is a no-op telemetry-wise — fine for local dev.
 **LLM provider chain**: `packages/llm` reads four secrets at
 request time — `GROQ_API_KEY`, `GEMINI_API_KEY`, `CF_AI_TOKEN`
 (+ `CLOUDFLARE_ACCOUNT_ID`), `OPENROUTER_API_KEY`. Per-operation
-chains are baked in as defaults (DESIGN §8.1) and will become
-env-overridable when the router is wired into `/v1/ask` in Slice 6.
-A provider listed in a chain but missing its key is simply skipped
-and increments `nlqdb.llm.failover.total{reason="not_configured"}`
-— the next provider in the chain handles the call.
+chains are baked in as defaults (DESIGN §8.1); env overrides are
+deferred until a real reason to override appears. A provider listed
+in a chain but missing its key is simply skipped and increments
+`nlqdb.llm.failover.total{reason="not_configured"}` — the next
+provider in the chain handles the call.
 
 **Better Auth** (`apps/api/src/auth.ts`): top-level singleton, wired
 via `import { env } from "cloudflare:workers"`. Reads
@@ -372,7 +371,7 @@ The `nlqdb-events` queue is created/updated by
 | 2.1  | `nlqdb.com` zone + Pages + SSL     | ✅            |
 | 2.1  | `nlqdb.com` Email Routing          | ✅            |
 | 2.1  | `nlqdb.ai` zone + 301 redirect     | ✅            |
-| 2.1  | `nlqdb.ai` Email Routing           | ⏳ (optional) |
+| 2.1  | `nlqdb.ai` Email Routing           | ✅            |
 | 2.2  | GitHub org `nlqdb`                 | ✅            |
 | 2.2  | Repo transfer to `nlqdb/nlqdb`     | ✅            |
 | 2.2  | Secret scanning + Dependabot       | ✅            |
@@ -389,11 +388,11 @@ The `nlqdb-events` queue is created/updated by
 | 2.5  | `INTERNAL_JWT_SECRET` (self-gen)   | ✅            |
 | 2.5  | GitHub OAuth app — `nlqdb-web` (prod)  | ✅            |
 | 2.5  | GitHub OAuth app — `nlqdb-web-dev`     | ✅            |
-| 2.5  | Google OAuth client                | ✅ (Testing)  |
+| 2.5  | Google OAuth client                | ✅ (In production) |
 | 2.5  | Resend API key                     | ✅ (domain verification ⏳ Phase 1) |
 | 2.5  | ~~AWS SES fallback~~               | ⏭ dropped — card-required; Resend free tier suffices pre-PMF |
 | 2.5  | Stripe (test mode) — sk + pk       | ✅            |
-| 2.5  | Stripe webhook secret              | ⏳ (Phase 0 §3 with `apps/api`) |
+| 2.5  | Stripe webhook secret              | ✅ (Slice 7 — PR #33) |
 | 2.6  | Sentry DSN                         | ✅            |
 | 2.6  | Grafana Cloud OTLP                 | ✅            |
 | 2.6  | LogSnag (`LOGSNAG_TOKEN` + `LOGSNAG_PROJECT`) | ⏳ (Phase 1 — single product-event sink) |
@@ -405,8 +404,32 @@ The `nlqdb-events` queue is created/updated by
 | 3    | D1 database `nlqdb-app` (binding `DB`)    | ✅ (Slice 2) |
 | 3    | Neon adapter + OTel SDK + first D1 migration | ✅ (Slice 3 — PR #24) |
 | 3    | LLM router with strict-$0 provider chain  | ✅ (Slice 4 — PR #25) |
-| 3    | Better Auth at `/api/auth/*` + D1 0002    | ✅ (Slice 5)          |
-| 3    | R2 bucket `nlqdb-assets` (binding `ASSETS`) | ⏳ deferred — needs dashboard opt-in |
+| 3    | Better Auth at `/api/auth/*` + D1 0002    | ✅ (Slice 5 — PR #27) |
+| 3    | `POST /v1/ask` end-to-end                 | ✅ (Slice 6 — PR #31) |
+| 3    | Events queue + `apps/events-worker`       | ✅ (PR #32)           |
+| 3    | Stripe webhook + `customers` + R2 archive | ✅ (Slice 7 — PR #33) |
+| 3    | R2 bucket `nlqdb-assets` (binding `ASSETS`) | ✅ enabled — billing footnote below |
+
+**R2 billing footnote.** Cloudflare requires a payment method on file
+to enable R2 even if usage stays inside the always-free monthly
+allowance (10 GB storage, 1 M Class A ops, 10 M Class B ops, free
+egress). The R2 line item on the account was added 2026-04-26 to
+unblock provisioning, then cancelled the same day — the cancellation
+takes effect at the end of the billing period.
+
+What we don't yet know with confidence: whether the bucket keeps
+serving under the free tier after the R2 subscription line ends, or
+whether the cancellation revokes API access account-wide. Cloudflare's
+public docs don't give a definitive answer for this exact path
+(enable + cancel without ever exceeding free tier), and community
+threads suggest suspended subscriptions block bucket access. So the
+cancellation date is a known unknown — calendar a check ~28 days out
+and decide then between (a) re-subscribing, (b) draining R2 onto a
+different store. Slice 7's only R2 use is fire-and-forget archival
+of Stripe webhook payloads (Stripe Dashboard "Resend webhook" is the
+canonical replay path; R2 is belt-and-braces), so an R2 outage is not
+data-loss for `customers` or `stripe_events` — only the raw payload
+audit trail.
 
 ---
 

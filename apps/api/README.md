@@ -28,6 +28,27 @@ to R2 at `stripe-events/YYYY/MM/DD/{event_id}.json` via
 `ctx.waitUntil`. No `trial.*` events — PLAN §5.3 has no Stripe trial
 period.
 
+### Registering the webhook in the Stripe Dashboard
+
+- **Endpoint URL:** `https://app.nlqdb.com/v1/stripe/webhook`
+- **API version:** `2026-04-22.dahlia` — pinned by
+  [`STRIPE_API_VERSION`](./src/stripe/client.ts) and the
+  `stripe@22.1.0` SDK; both must move together. Pinning the dashboard
+  endpoint to the same version is what guarantees payload shapes
+  match the SDK types we read in `extractSubscriptionFields`
+  (`current_period_end` lives on `SubscriptionItem`, not Subscription).
+- **Events to subscribe to** — exactly these four (anything else lands
+  in `stripe_events` for audit but isn't dispatched, so subscribing
+  generates noise without value):
+  - `checkout.session.completed`
+  - `customer.subscription.created`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+- After saving, copy the signing secret into `.envrc` as
+  `STRIPE_WEBHOOK_SECRET=whsec_…`, then `bun run secrets:remote`. The
+  secret is the only thing the handler reads; rotating it = re-running
+  `secrets:remote` after pasting the new value.
+
 The Worker's `fetch` handler installs OpenTelemetry on every
 request when `GRAFANA_OTLP_ENDPOINT` + `GRAFANA_OTLP_AUTHORIZATION`
 are set, and flushes via `ctx.waitUntil(forceFlush())` before the
@@ -61,9 +82,9 @@ paths, with `nlqdb.auth.provider` attribute), `nlqdb.auth.verify` span
 
 Magic link, the device-code flow (`/v1/auth/{device, device/token,
 refresh, logout}`), the keys table (`pk_live_` / `sk_live_` /
-`sk_mcp_*`), and the internal-JWT signer are explicitly NOT in Slice 5
-— they land alongside the surfaces that need them (CLI / Stripe /
-`/v1/ask`).
+`sk_mcp_*`), and the internal-JWT signer are not in Phase 0 — they
+land alongside the surfaces that need them (CLI / Stripe / public
+`<nlq-data>` embed).
 
 **Bindings:**
 
@@ -125,8 +146,12 @@ SQL file.
 
 ## Deploy
 
+All three steps are required — skipping `migrate:remote` 500s the
+auth + DB routes silently against an unmigrated D1 (PR #30 incident).
+
 ```bash
 bun --cwd apps/api run secrets:remote  # wrangler secret bulk from .envrc
+bun --cwd apps/api run migrate:remote  # apply unapplied D1 migrations
 bun --cwd apps/api run deploy          # uses CLOUDFLARE_API_TOKEN + _ACCOUNT_ID
 ```
 

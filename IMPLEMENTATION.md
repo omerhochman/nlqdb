@@ -533,11 +533,11 @@ Workload Analyzer.
   form-field-to-column inference.
 - **CSV upload** in the chat (unlocks P3 per `PERSONAS.md`).
 - **Custom domains for embed** via Cloudflare for SaaS (first 100 zones free).
-- **Stripe** live (Hobby $10; pricing page). Webhook handler at
-  `/v1/stripe/webhook` calls `events.emit` for
-  `billing.subscription_created` / `billing.subscription_canceled`
-  after signature verify (per `PERFORMANCE.md §4` Slice 7) — landing
-  in LogSnag.
+- **Stripe** live (Hobby $10; pricing page). The `/v1/stripe/webhook`
+  handler shipped in Slice 7 (PR #33) and already emits
+  `billing.subscription_{created,canceled}` to LogSnag; Phase 2 flips
+  Stripe out of test mode and adds the Checkout Session +
+  customer-portal endpoints that drive paid sign-ups.
 - **PostHog Cloud sink** — *only* turn this on if a cohort / funnel /
   retention question lands that SQL on D1/Neon can't answer. Wires
   into `packages/events` alongside LogSnag; call sites unchanged.

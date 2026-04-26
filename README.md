@@ -40,7 +40,7 @@ That's the whole backend. No SQL, no schema, no API, no framework.
 
 [`examples/`](./examples) — minimal scaffolds in plain HTML, Next.js, Nuxt, SvelteKit, Astro, plus a CLI-only walkthrough. Each is the smallest valid integration around one `<nlq-data>` element or one CLI session.
 
-> **Status (Phase 0):** runtime endpoints land in Slices 6–7. The examples document the API the slices are building toward — call sites are the spec.
+> **Status (Phase 0):** `/v1/ask` and `/v1/stripe/webhook` are live in `apps/api`. The `<nlq-data>` element + `apps/web` chat surface land in Phase 1, so these examples are still spec-only end-to-end — call sites are the contract.
 
 ## Status
 

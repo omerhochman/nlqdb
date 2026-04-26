@@ -149,120 +149,102 @@ export function resetTelemetryForTest(): void {
 // Lazy instruments — created on first use from the global meter.
 // Works whether setup landed via setupTelemetry, installTelemetryForTest,
 // or (no-op) before any setup. Names + labels pinned in PERFORMANCE §3.2.
+//
+// Each `lazyCounter` / `lazyHistogram` call auto-registers a reset hook
+// so `resetInstrumentsForTest` can't drift from the export list.
 
 type Histogram = ReturnType<ReturnType<typeof metrics.getMeter>["createHistogram"]>;
 type Counter = ReturnType<ReturnType<typeof metrics.getMeter>["createCounter"]>;
 
-let _dbDurationMs: Histogram | undefined;
-export function dbDurationMs(): Histogram {
-  if (!_dbDurationMs) {
-    _dbDurationMs = metrics.getMeter("@nlqdb/db").createHistogram("nlqdb.db.duration_ms", {
-      description: "Duration of DB queries, in milliseconds.",
-      unit: "ms",
-    });
-  }
-  return _dbDurationMs;
+const resetFns: Array<() => void> = [];
+
+function lazyCounter(meter: string, name: string, description: string): () => Counter {
+  let cached: Counter | undefined;
+  resetFns.push(() => {
+    cached = undefined;
+  });
+  return () => {
+    if (!cached) {
+      cached = metrics.getMeter(meter).createCounter(name, { description });
+    }
+    return cached;
+  };
 }
 
-let _llmCallsTotal: Counter | undefined;
-export function llmCallsTotal(): Counter {
-  if (!_llmCallsTotal) {
-    _llmCallsTotal = metrics.getMeter("@nlqdb/llm").createCounter("nlqdb.llm.calls.total", {
-      description: "LLM calls, labelled by provider, operation, status.",
-    });
-  }
-  return _llmCallsTotal;
+function lazyHistogram(
+  meter: string,
+  name: string,
+  description: string,
+  unit: string,
+): () => Histogram {
+  let cached: Histogram | undefined;
+  resetFns.push(() => {
+    cached = undefined;
+  });
+  return () => {
+    if (!cached) {
+      cached = metrics.getMeter(meter).createHistogram(name, { description, unit });
+    }
+    return cached;
+  };
 }
 
-let _llmDurationMs: Histogram | undefined;
-export function llmDurationMs(): Histogram {
-  if (!_llmDurationMs) {
-    _llmDurationMs = metrics.getMeter("@nlqdb/llm").createHistogram("nlqdb.llm.duration_ms", {
-      description: "Duration of LLM calls, in milliseconds.",
-      unit: "ms",
-    });
-  }
-  return _llmDurationMs;
-}
+export const dbDurationMs = lazyHistogram(
+  "@nlqdb/db",
+  "nlqdb.db.duration_ms",
+  "Duration of DB queries, in milliseconds.",
+  "ms",
+);
 
-let _llmFailoverTotal: Counter | undefined;
-export function llmFailoverTotal(): Counter {
-  if (!_llmFailoverTotal) {
-    _llmFailoverTotal = metrics.getMeter("@nlqdb/llm").createCounter("nlqdb.llm.failover.total", {
-      description: "Provider-chain failovers, labelled by from_provider, to_provider, reason.",
-    });
-  }
-  return _llmFailoverTotal;
-}
+export const llmCallsTotal = lazyCounter(
+  "@nlqdb/llm",
+  "nlqdb.llm.calls.total",
+  "LLM calls, labelled by provider, operation, status.",
+);
 
-let _authEventsTotal: Counter | undefined;
-export function authEventsTotal(): Counter {
-  if (!_authEventsTotal) {
-    _authEventsTotal = metrics.getMeter("@nlqdb/api").createCounter("nlqdb.auth.events.total", {
-      description: "Auth events, labelled by type (oauth_callback / verify) and outcome.",
-    });
-  }
-  return _authEventsTotal;
-}
+export const llmDurationMs = lazyHistogram(
+  "@nlqdb/llm",
+  "nlqdb.llm.duration_ms",
+  "Duration of LLM calls, in milliseconds.",
+  "ms",
+);
 
-let _cachePlanHitsTotal: Counter | undefined;
-export function cachePlanHitsTotal(): Counter {
-  if (!_cachePlanHitsTotal) {
-    _cachePlanHitsTotal = metrics
-      .getMeter("@nlqdb/api")
-      .createCounter("nlqdb.cache.plan.hits.total", {
-        description: "/v1/ask plan-cache hits (KV lookup returned a cached plan).",
-      });
-  }
-  return _cachePlanHitsTotal;
-}
+export const llmFailoverTotal = lazyCounter(
+  "@nlqdb/llm",
+  "nlqdb.llm.failover.total",
+  "Provider-chain failovers, labelled by from_provider, to_provider, reason.",
+);
 
-let _cachePlanMissesTotal: Counter | undefined;
-export function cachePlanMissesTotal(): Counter {
-  if (!_cachePlanMissesTotal) {
-    _cachePlanMissesTotal = metrics
-      .getMeter("@nlqdb/api")
-      .createCounter("nlqdb.cache.plan.misses.total", {
-        description: "/v1/ask plan-cache misses (LLM router invoked, KV write follows).",
-      });
-  }
-  return _cachePlanMissesTotal;
-}
+export const authEventsTotal = lazyCounter(
+  "@nlqdb/api",
+  "nlqdb.auth.events.total",
+  "Auth events, labelled by type (oauth_callback / verify) and outcome.",
+);
 
-let _webhookStripeIdempotencyErrorsTotal: Counter | undefined;
-export function webhookStripeIdempotencyErrorsTotal(): Counter {
-  if (!_webhookStripeIdempotencyErrorsTotal) {
-    _webhookStripeIdempotencyErrorsTotal = metrics
-      .getMeter("@nlqdb/api")
-      .createCounter("nlqdb.webhook.stripe.idempotency_errors.total", {
-        description:
-          "Stripe webhook idempotency-insert errors, labelled by stripe_event_type. Genuine D1 failures only — duplicates (ON CONFLICT) are recorded on the span as nlqdb.webhook.duplicate=true, not here.",
-      });
-  }
-  return _webhookStripeIdempotencyErrorsTotal;
-}
+export const cachePlanHitsTotal = lazyCounter(
+  "@nlqdb/api",
+  "nlqdb.cache.plan.hits.total",
+  "/v1/ask plan-cache hits (KV lookup returned a cached plan).",
+);
 
-let _webhookStripeArchiveFailuresTotal: Counter | undefined;
-export function webhookStripeArchiveFailuresTotal(): Counter {
-  if (!_webhookStripeArchiveFailuresTotal) {
-    _webhookStripeArchiveFailuresTotal = metrics
-      .getMeter("@nlqdb/api")
-      .createCounter("nlqdb.webhook.stripe.archive_failures.total", {
-        description:
-          "Stripe webhook R2 archive failures (post-response, fire-and-forget). Best-effort — the event itself is already recorded in the stripe_events D1 table; this counter just exposes drop visibility.",
-      });
-  }
-  return _webhookStripeArchiveFailuresTotal;
-}
+export const cachePlanMissesTotal = lazyCounter(
+  "@nlqdb/api",
+  "nlqdb.cache.plan.misses.total",
+  "/v1/ask plan-cache misses (LLM router invoked, KV write follows).",
+);
+
+export const webhookStripeIdempotencyErrorsTotal = lazyCounter(
+  "@nlqdb/api",
+  "nlqdb.webhook.stripe.idempotency_errors.total",
+  "Stripe webhook idempotency-insert errors, labelled by stripe_event_type. Genuine D1 failures only — duplicates (ON CONFLICT) are recorded on the span as nlqdb.webhook.duplicate=true, not here.",
+);
+
+export const webhookStripeArchiveFailuresTotal = lazyCounter(
+  "@nlqdb/api",
+  "nlqdb.webhook.stripe.archive_failures.total",
+  "Stripe webhook R2 archive failures (post-response, fire-and-forget). Best-effort — the event itself is already recorded in the stripe_events D1 table; this counter just exposes drop visibility.",
+);
 
 export function resetInstrumentsForTest(): void {
-  _dbDurationMs = undefined;
-  _llmCallsTotal = undefined;
-  _llmDurationMs = undefined;
-  _llmFailoverTotal = undefined;
-  _authEventsTotal = undefined;
-  _cachePlanHitsTotal = undefined;
-  _cachePlanMissesTotal = undefined;
-  _webhookStripeIdempotencyErrorsTotal = undefined;
-  _webhookStripeArchiveFailuresTotal = undefined;
+  for (const fn of resetFns) fn();
 }

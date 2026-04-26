@@ -47,7 +47,7 @@ export type WebhookSigner = {
     header: string,
     secret: string,
     tolerance?: number,
-    cryptoProvider?: Stripe.CryptoProvider,
+    cryptoProvider?: InstanceType<typeof Stripe.CryptoProvider>,
   ): Promise<Stripe.Event>;
 };
 
@@ -56,7 +56,7 @@ export type StripeWebhookDeps = {
   // Web Crypto provider — required on Workers since Node `crypto` isn't
   // available. Production = singleton; tests can pass `undefined` and
   // the SDK uses the default (which works under Node-the-test-runtime).
-  cryptoProvider?: Stripe.CryptoProvider;
+  cryptoProvider?: InstanceType<typeof Stripe.CryptoProvider>;
   webhookSecret: string;
   db: D1Database;
   // R2 binding — optional. When undefined, archive step is skipped
@@ -76,15 +76,6 @@ export type StripeWebhookResult =
   | { status: 400; body: { error: "invalid_signature" } }
   | { status: 503; body: { error: "secret_unconfigured" } }
   | { status: 500; body: { error: "internal" } };
-
-// Stripe event types we act on. Anything else is recorded for audit
-// but no D1 mutation, no emit.
-const HANDLED_EVENT_TYPES = new Set<Stripe.Event.Type>([
-  "checkout.session.completed",
-  "customer.subscription.created",
-  "customer.subscription.updated",
-  "customer.subscription.deleted",
-]);
 
 export async function processWebhook(
   deps: StripeWebhookDeps,
@@ -164,23 +155,23 @@ export async function processWebhook(
       // The `dispatchOk` flag gates the processed_at UPDATE below so
       // a failed dispatch leaves processed_at = NULL — that's the
       // queryable signal a stuck-event sweeper (or operator) can find.
+      // `dispatchEvent`'s `default: return` is the no-op for unhandled
+      // types — they record in `stripe_events` and that's all we promise.
       let dispatchOk = true;
-      if (HANDLED_EVENT_TYPES.has(event.type)) {
-        try {
-          await dispatchEvent(deps, event);
-        } catch (err) {
-          dispatchOk = false;
-          recordSpanError(span, err);
-          console.error(
-            JSON.stringify({
-              level: "error",
-              msg: "stripe_dispatch_failed",
-              event_id: event.id,
-              event_type: event.type,
-              error: err instanceof Error ? err.message : String(err),
-            }),
-          );
-        }
+      try {
+        await dispatchEvent(deps, event);
+      } catch (err) {
+        dispatchOk = false;
+        recordSpanError(span, err);
+        console.error(
+          JSON.stringify({
+            level: "error",
+            msg: "stripe_dispatch_failed",
+            event_id: event.id,
+            event_type: event.type,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
       }
 
       // Mark processed only when dispatch succeeded (or wasn't needed
@@ -310,89 +301,40 @@ async function handleSubscriptionCreated(
   deps: StripeWebhookDeps,
   sub: Stripe.Subscription,
 ): Promise<void> {
-  const customerId = typeof sub.customer === "string" ? sub.customer : null;
-  if (!customerId) return;
-
-  const userRow = await lookupUserByCustomerId(deps.db, customerId);
-  if (!userRow) {
-    // No matching customers row — typically means a subscription was
-    // created out-of-band (Stripe Dashboard, CLI test). Skip the emit
-    // and the UPDATE; the row would have nothing to attach to.
-    console.warn(
-      JSON.stringify({
-        level: "warn",
-        msg: "subscription_created_no_user_mapping",
-        subscription_id: sub.id,
-        customer_id: customerId,
-      }),
-    );
-    return;
-  }
+  const resolved = await resolveSubUser(deps.db, sub);
+  if (!resolved) return;
 
   const fields = extractSubscriptionFields(sub);
-  await deps.db
-    .prepare(
-      "UPDATE customers SET " +
-        "stripe_subscription_id = ?, status = ?, current_period_end = ?, " +
-        "cancel_at_period_end = ?, price_id = ?, updated_at = unixepoch() " +
-        "WHERE user_id = ?",
-    )
-    .bind(
-      sub.id,
-      sub.status,
-      fields.currentPeriodEnd,
-      fields.cancelAtPeriodEnd,
-      fields.priceId,
-      userRow.user_id,
-    )
-    .run();
+  await syncSubscriptionFields(deps.db, sub, fields, resolved.userId);
 
-  if (fields.priceId) {
-    await deps.events.emit(
-      {
-        name: "billing.subscription_created",
-        userId: userRow.user_id,
-        customerId,
-        subscriptionId: sub.id,
-        priceId: fields.priceId,
-      },
-      // Use Stripe's event-id-derived key so LogSnag dedupes if the
-      // same subscription somehow generates two created events. The
-      // caller is `dispatchEvent`, which doesn't see the wrapping
-      // Stripe.Event.id — so we synthesize from sub.id, which is
-      // unique per subscription.
-      { id: `billing.subscription_created.${sub.id}` },
-    );
+  if (!fields.priceId) {
+    warnMissingPriceId("subscription_created_missing_price", sub);
+    return;
   }
+  // Use Stripe's sub.id as the LogSnag idempotency key — `dispatchEvent`
+  // doesn't see the wrapping Stripe.Event.id, and sub.id is unique per
+  // subscription, so two created events for the same sub would dedupe.
+  await deps.events.emit(
+    {
+      name: "billing.subscription_created",
+      userId: resolved.userId,
+      customerId: resolved.customerId,
+      subscriptionId: sub.id,
+      priceId: fields.priceId,
+    },
+    { id: `billing.subscription_created.${sub.id}` },
+  );
 }
 
 async function handleSubscriptionUpdated(
   deps: StripeWebhookDeps,
   sub: Stripe.Subscription,
 ): Promise<void> {
-  const customerId = typeof sub.customer === "string" ? sub.customer : null;
-  if (!customerId) return;
-
-  const userRow = await lookupUserByCustomerId(deps.db, customerId);
-  if (!userRow) return; // out-of-band sub; ignore
+  const resolved = await resolveSubUser(deps.db, sub);
+  if (!resolved) return;
 
   const fields = extractSubscriptionFields(sub);
-  await deps.db
-    .prepare(
-      "UPDATE customers SET " +
-        "stripe_subscription_id = ?, status = ?, current_period_end = ?, " +
-        "cancel_at_period_end = ?, price_id = ?, updated_at = unixepoch() " +
-        "WHERE user_id = ?",
-    )
-    .bind(
-      sub.id,
-      sub.status,
-      fields.currentPeriodEnd,
-      fields.cancelAtPeriodEnd,
-      fields.priceId,
-      userRow.user_id,
-    )
-    .run();
+  await syncSubscriptionFields(deps.db, sub, fields, resolved.userId);
   // No emit — `updated` is pure state sync. Created/canceled have
   // their own events.
 }
@@ -401,23 +343,24 @@ async function handleSubscriptionDeleted(
   deps: StripeWebhookDeps,
   sub: Stripe.Subscription,
 ): Promise<void> {
-  const customerId = typeof sub.customer === "string" ? sub.customer : null;
-  if (!customerId) return;
-
-  const userRow = await lookupUserByCustomerId(deps.db, customerId);
-  if (!userRow) return;
+  const resolved = await resolveSubUser(deps.db, sub);
+  if (!resolved) return;
 
   await deps.db
     .prepare("UPDATE customers SET status = 'canceled', updated_at = unixepoch() WHERE user_id = ?")
-    .bind(userRow.user_id)
+    .bind(resolved.userId)
     .run();
 
-  const priceId = sub.items.data[0]?.price.id ?? "unknown";
+  const priceId = sub.items.data[0]?.price.id ?? null;
+  if (!priceId) {
+    warnMissingPriceId("subscription_canceled_missing_price", sub);
+    return;
+  }
   await deps.events.emit(
     {
       name: "billing.subscription_canceled",
-      userId: userRow.user_id,
-      customerId,
+      userId: resolved.userId,
+      customerId: resolved.customerId,
       subscriptionId: sub.id,
       priceId,
     },
@@ -425,25 +368,80 @@ async function handleSubscriptionDeleted(
   );
 }
 
-async function lookupUserByCustomerId(
+// Resolves a Stripe.Subscription's customer to an nlqdb user_id. Returns
+// null (with a warn log) when the customer isn't a string, or no
+// customers row matches — typical for out-of-band subs (Dashboard, CLI
+// test). Centralizes the warn so all three subscription handlers behave
+// the same way; previously created warned and updated/deleted were silent.
+async function resolveSubUser(
   db: D1Database,
-  stripeCustomerId: string,
-): Promise<{ user_id: string } | null> {
-  return await db
+  sub: Stripe.Subscription,
+): Promise<{ userId: string; customerId: string } | null> {
+  const customerId = typeof sub.customer === "string" ? sub.customer : null;
+  if (!customerId) return null;
+  const row = await db
     .prepare("SELECT user_id FROM customers WHERE stripe_customer_id = ?")
-    .bind(stripeCustomerId)
+    .bind(customerId)
     .first<{ user_id: string }>();
+  if (!row) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        msg: "subscription_no_user_mapping",
+        subscription_id: sub.id,
+        customer_id: customerId,
+      }),
+    );
+    return null;
+  }
+  return { userId: row.user_id, customerId };
 }
 
-// Pulls fields we persist to `customers` from a Subscription. Stripe
-// 2025-09 moved `current_period_end` from the Subscription object to
-// SubscriptionItem; reading items.data[0].current_period_end is the
-// canonical post-2025-09 location.
-function extractSubscriptionFields(sub: Stripe.Subscription): {
+async function syncSubscriptionFields(
+  db: D1Database,
+  sub: Stripe.Subscription,
+  fields: SubscriptionFields,
+  userId: string,
+): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE customers SET " +
+        "stripe_subscription_id = ?, status = ?, current_period_end = ?, " +
+        "cancel_at_period_end = ?, price_id = ?, updated_at = unixepoch() " +
+        "WHERE user_id = ?",
+    )
+    .bind(
+      sub.id,
+      sub.status,
+      fields.currentPeriodEnd,
+      fields.cancelAtPeriodEnd,
+      fields.priceId,
+      userId,
+    )
+    .run();
+}
+
+function warnMissingPriceId(msg: string, sub: Stripe.Subscription): void {
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      msg,
+      subscription_id: sub.id,
+    }),
+  );
+}
+
+type SubscriptionFields = {
   currentPeriodEnd: number | null;
   cancelAtPeriodEnd: number;
   priceId: string | null;
-} {
+};
+
+// Pulls fields we persist to `customers` from a Subscription.
+// `current_period_end` lives on `SubscriptionItem` (moved off the
+// Subscription object in 2025-09 and still there in
+// 2026-04-22.dahlia, the version pinned in src/stripe/client.ts).
+function extractSubscriptionFields(sub: Stripe.Subscription): SubscriptionFields {
   const item = sub.items.data[0];
   return {
     currentPeriodEnd: item?.current_period_end ?? null,
