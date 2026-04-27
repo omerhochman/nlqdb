@@ -14,7 +14,17 @@ if (typeof customElements !== "undefined" && !customElements.get("nlq-data")) {
   customElements.define("nlq-data", NlqDataElement);
 }
 
-export { NlqDataElement, type NlqDataLoadDetail } from "./element.ts";
+export { NlqDataElement, type NlqDataErrorDetail, type NlqDataLoadDetail } from "./element.ts";
+export {
+  type ApiErrorBody,
+  type AskFailure,
+  type AskOutcome,
+  type AskParams,
+  type AskSuccess,
+  type FetchLike,
+  fetchAsk,
+} from "./fetch.ts";
+export { errorHtml, type NlqState, renderState } from "./render.ts";
 export {
   escapeHtml,
   formatValue,

@@ -52,9 +52,18 @@ const placeholders = [
     </p>
     <div class="demo__grid">
       <pre class="demo__code"><code>{`<script src="https://elements.nlqdb.com/v1.js" type="module"></script>
-<nlq-data data-demo="orders" template="table"></nlq-data>`}</code></pre>
+<nlq-data
+  goal="orders from this morning, by drink"
+  db="demo"
+  template="table"
+></nlq-data>`}</code></pre>
       <div class="demo__rendered">
-        <nlq-data data-demo="orders" template="table"></nlq-data>
+        <nlq-data
+          goal="orders from this morning, by drink"
+          db="demo"
+          endpoint="https://app.nlqdb.com/v1/ask"
+          template="table"
+        ></nlq-data>
       </div>
     </div>
   </aside>
