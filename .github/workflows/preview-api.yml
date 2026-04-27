@@ -1,0 +1,129 @@
+# nlqdb — preview deploys for apps/api on every PR push.
+#
+# Uploads the PR's HEAD as a non-production *version* of the prod
+# `nlqdb-api` Worker (`wrangler versions upload`). Each push gets a
+# unique URL of the form
+# `<version-prefix>-nlqdb-api.omer-hochman.workers.dev`; the
+# promoted production version (and `app.nlqdb.com`) are untouched
+# until merge runs `wrangler deploy` via deploy-api.yml.
+#
+# Why this and not `--env preview` against a separate worker:
+# Workers Versions gives a unique URL per push, so two open PRs
+# never overwrite each other's preview. No bootstrap dance needed —
+# CF generates the per-version URL automatically the first time.
+# Preview URLs must be enabled on the `nlqdb-api` worker in the
+# dashboard (one-time, already done).
+#
+# Versions inherit the prod worker's bindings (KV / D1 / Queue /
+# R2) — same shared-bindings model we had with --env preview, just
+# with a saner URL story. Schema-changing PRs still need local
+# testing: this workflow does NOT run `migrate:remote` (uploading a
+# version doesn't apply migrations, and the PR may not be merge-
+# ready for a prod migration).
+#
+# Concurrency: keyed by PR number with `cancel-in-progress: true`
+# so only the latest push for each PR is in flight; older versions
+# stay reachable on their own URLs in the dashboard until a future
+# cleanup pass garbage-collects them.
+
+name: Preview API
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "apps/api/**"
+      - "packages/auth-internal/**"
+      - "packages/db/**"
+      - "packages/events/**"
+      - "packages/llm/**"
+      - "packages/otel/**"
+      - ".github/workflows/preview-api.yml"
+
+concurrency:
+  group: preview-api-pr-${{ github.event.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+jobs:
+  preview:
+    name: wrangler versions upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+
+      - name: Upload preview version
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: versions upload --message "PR #${{ github.event.number }} @ ${{ github.event.pull_request.head.sha }}"
+
+      # Sticky comment — looks up an existing preview comment by a
+      # hidden marker and edits it in place. Keeps the PR conversation
+      # clean: one comment per PR, updated on every push, instead of a
+      # new comment per deploy.
+      - name: Sticky preview comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = `${{ steps.deploy.outputs.deployment-url }}`;
+            const sha = context.sha.slice(0, 7);
+            const marker = '<!-- preview-api-sticky -->';
+            const ts = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+
+            // Fallback shows the URL pattern when wrangler-action
+            // didn't surface the per-version URL — `<id>` is the
+            // 8-char prefix CF assigns; visible in the Versions tab
+            // of the worker dashboard.
+            const urlLine = url
+              ? `- URL: <${url}>`
+              : '- URL: `<id>-nlqdb-api.omer-hochman.workers.dev` (latest version visible in the dashboard → `nlqdb-api` → Versions)';
+
+            const body = [
+              marker,
+              '🚀 **Preview API deployed**',
+              '',
+              urlLine,
+              '- Worker: `nlqdb-api` (non-production version — `app.nlqdb.com` untouched)',
+              `- Commit: \`${sha}\``,
+              `- Updated: ${ts}`,
+              '',
+              'Versions inherit prod bindings (KV / D1 / Queue / R2). Schema-changing PRs need local testing — this workflow does **not** run `migrate:remote`. See [RUNBOOK §6](../blob/main/RUNBOOK.md).',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

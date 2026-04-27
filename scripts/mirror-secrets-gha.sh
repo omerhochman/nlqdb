@@ -4,6 +4,16 @@
 # overwrites). Never logs values; only secret names + lengths +
 # OK/skip status.
 #
+# This is the ONLY supported path for setting GH Actions secrets.
+# Pasting values into the GH UI directly is forbidden: observed
+# 2026-04-27 that UI-pasted CLOUDFLARE_API_TOKEN / _ACCOUNT_ID
+# drifted silently from `.envrc` and broke deploys with misleading
+# errors (`code: 6111` Invalid auth header on D1, `code: 7003`
+# Could not route on Workers Versions). Likely cause: invisible
+# whitespace/newline added by browser paste. This script writes
+# values via `gh secret set --body -` (stdin), so the byte-exact
+# `.envrc` value is what GH stores.
+#
 # Run on the source machine after any .envrc rotation. CI workflows
 # read these via ${{ secrets.NAME }}; the canonical name list lives
 # in .env.example. Two intentional omissions:

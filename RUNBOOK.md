@@ -227,13 +227,13 @@ the failure path (Basic auth rejected = wrong id or secret).
 
 **Strategy** (per surface):
 
-| Surface              | Hosting                  | Production deploy                                      | Branch / PR previews |
-| :------------------- | :----------------------- | :----------------------------------------------------- | :------------------- |
-| `apps/api`           | Cloudflare Workers       | GH Actions — `.github/workflows/deploy-api.yml`        | n/a (single env)     |
-| `apps/events-worker` | Cloudflare Workers       | GH Actions — `.github/workflows/deploy-events-worker.yml` | n/a (single env)  |
-| `apps/coming-soon`   | Cloudflare Pages         | GH Actions — `.github/workflows/deploy-coming-soon.yml`| via the same Pages project |
-| `apps/web`           | Cloudflare Pages         | **Cloudflare Pages git integration** (recommended; setup below) | automatic on every push to non-main branches |
-| `packages/elements`  | Cloudflare Pages         | **Cloudflare Pages git integration** (recommended; setup below) | automatic on every push to non-main branches |
+| Surface              | Hosting             | Production deploy                                          | PR preview                                                    |
+| :------------------- | :------------------ | :--------------------------------------------------------- | :------------------------------------------------------------ |
+| `apps/api`           | Cloudflare Workers  | GH Actions — `.github/workflows/deploy-api.yml`            | GH Actions — `.github/workflows/preview-api.yml` (Workers Versions on `nlqdb-api`; per-PR URL) |
+| `apps/events-worker` | Cloudflare Workers  | GH Actions — `.github/workflows/deploy-events-worker.yml`  | n/a (queue-only; nothing visible to preview)                  |
+| `apps/coming-soon`   | Cloudflare Pages    | GH Actions — `.github/workflows/deploy-coming-soon.yml`    | available via the Pages project (push branch + Pages emits a preview URL) |
+| `apps/web`           | Cloudflare Pages    | **Cloudflare Pages git integration** (one-time dashboard) | automatic per-branch + PR comment with the URL                |
+| `packages/elements`  | Cloudflare Pages    | **Cloudflare Pages git integration** (one-time dashboard) | automatic per-branch + PR comment with the URL                |
 
 Workers stay on GH Actions because they need pre-deploy migrations
 (`migrate:remote`) and the secrets-mirror sequence — those are
@@ -465,6 +465,68 @@ wrangler pages deploy packages/elements/dist --project-name=nlqdb-elements --bra
 CI bundle-size budget: < 6 KB gzipped (DESIGN §3.5). Enforced by
 `.github/workflows/ci.yml` job `build-elements`.
 
+### Preview environments
+
+What you see in a PR before merging, by surface:
+
+#### Pages — `apps/web`, `packages/elements`
+
+Free per-branch preview deploys come from Cloudflare Pages's git
+integration (one-time dashboard setup per project, documented above
+in the `apps/web` and `packages/elements` sections). After setup,
+every push to a non-`main` branch produces a preview URL of the form
+`<commit-sha>.<project>.pages.dev`, and Cloudflare comments the URL
+on the PR. No GH Actions YAML needed for previews — the integration
+handles everything.
+
+If preview deploys aren't appearing on PRs, the integration isn't
+wired yet. Re-do the dashboard setup steps for the affected project.
+
+#### Pages — `apps/coming-soon`
+
+The current GH Action only deploys on merge to `main`. To get
+branch previews, either:
+
+1. Switch coming-soon to Cloudflare Pages git integration (same
+   one-time dashboard setup as `nlqdb-web`); the GH Action becomes
+   redundant and can be removed.
+2. Or live without previews on coming-soon — the page is on its way
+   out once `apps/web` takes over `nlqdb.com`.
+
+Default recommendation: option (2). Coming-soon is short-lived.
+
+#### Workers — `apps/api`
+
+`.github/workflows/preview-api.yml` triggers on every PR push and
+runs `wrangler versions upload` against the `nlqdb-api` Worker
+(Workers Versions feature). Each push produces a *non-production*
+version of the prod Worker with a unique URL of the form
+`<id>-nlqdb-api.omer-hochman.workers.dev`. The promoted production
+version (and `app.nlqdb.com`) stay untouched until merge runs
+`wrangler deploy` via `deploy-api.yml`. Sticky PR comment carries
+the per-version URL.
+
+**One-time dashboard setup (already done):** Workers & Pages →
+`nlqdb-api` → Settings → Domains & Routes → enable both
+`workers.dev` and `Preview URLs`. Without Preview URLs enabled,
+the per-version URLs aren't publicly reachable.
+
+Versions inherit prod bindings (KV / D1 / Queue / R2). The workflow
+deliberately skips `migrate:remote` — schema-changing PRs need
+local testing with `migrate:local` + `wrangler dev`, the preview
+will 5xx schema-dependent routes until the PR merges and
+`deploy-api.yml` applies migrations.
+
+Why versions-upload over `--env preview` and what the per-version
+URL contract is: see the header comment in
+`.github/workflows/preview-api.yml`. Don't restate it here.
+
+#### Workers — `apps/events-worker`
+
+Queue-only consumer with no public URL. Preview adds little
+visible value — defer until there's a clear reason to test
+unmerged consumer code against the preview queue.
+
 ---
 
 ## 7. Prerequisites checklist (§2 of IMPLEMENTATION.md)
@@ -576,9 +638,18 @@ NLQDB_BACKUP_DIR=/path/to/private/folder scripts/backup-envrc.sh
 
 ### When a credential fails verify
 
+> **After ANY rotation: re-run `scripts/mirror-secrets-gha.sh` (and
+> `scripts/mirror-secrets-workers.sh remote` if the secret runs at
+> Workers runtime). Never paste secret values into the GH Actions
+> UI directly — observed 2026-04-27 that UI-pasted values can drift
+> silently from `.envrc` and break deploys with misleading errors
+> (`code: 6111` Invalid auth header on D1, `code: 7003` Could not
+> route on Workers Versions). The mirror script reads from `.envrc`
+> via stdin so what's on disk is what gets stored.**
+
 | Credential             | Rotation path                                                              |
 | :--------------------- | :------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN` | https://dash.cloudflare.com/profile/api-tokens → regenerate (same perms)   |
+| `CLOUDFLARE_API_TOKEN` | https://dash.cloudflare.com/profile/api-tokens → use template **Edit Cloudflare Workers** (covers Workers Scripts/Builds/KV/R2/Tail edit + Account Settings/User Details read + Workers Routes edit). Add `D1: Edit` + `Queues: Edit` for our stack. |
 | `CLOUDFLARE_ACCOUNT_ID`| `wrangler whoami` — never rotates                                          |
 | `NEON_API_KEY`         | Neon → Account settings → API keys → create new                            |
 | `DATABASE_URL`         | Neon → Branches → main → Roles → `neondb_owner` → Reset password           |

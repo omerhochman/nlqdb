@@ -56,3 +56,13 @@ bucket_name = "nlqdb-assets"
 [[routes]]
 pattern = "app.nlqdb.com"
 custom_domain = true
+
+# Preview deploys use Workers Versions on this worker (see
+# `.github/workflows/preview-api.yml` — `wrangler versions upload`).
+# Each PR push uploads a non-production version inheriting the
+# bindings above; CF assigns a `<id>-nlqdb-api.omer-hochman.workers.dev`
+# URL per version. The promoted version (and `app.nlqdb.com`)
+# stay untouched until merge runs `wrangler deploy` via
+# `.github/workflows/deploy-api.yml`. No `[env.preview]` block
+# needed — that was the older "separate preview Worker" model.
+# Documented in RUNBOOK §6 "Preview environments — Workers".
