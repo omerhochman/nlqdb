@@ -23,6 +23,46 @@ const SERVICE_VERSION = "0.1.0";
 // drifting when bindings are added.
 const app = new Hono<{ Bindings: Cloudflare.Env; Variables: RequireSessionVariables }>();
 
+// Cross-subdomain CORS allow-list. Sign-in (`/api/auth/*`) and chat
+// (`/v1/chat/*`) are called from `nlqdb.com` (Pages) into
+// `app.nlqdb.com` (Worker) with `credentials: include` so the
+// session cookie (`.nlqdb.com` scope) round-trips. Browsers reject
+// `credentials: include` against `origin: *`, so the allow-list is
+// explicit. `pages.dev` previews + localhost dev origins included
+// so the same flows work pre-merge and during `wrangler dev`.
+//
+// /v1/demo/* keeps its own permissive `*` policy (no credentials,
+// public read). /v1/ask stays uncovered for now — revisit when
+// third-party `<nlq-data>` embeds with `pk_live_` keys land
+// (Phase 1, separate slice).
+const CORS_ALLOWED_ORIGINS = [
+  "https://nlqdb.com",
+  "https://www.nlqdb.com",
+  "https://nlqdb-web.pages.dev",
+  /^https:\/\/pr-\d+\.nlqdb-web\.pages\.dev$/,
+  "http://localhost:4321",
+  "http://localhost:8787",
+];
+
+const credentialedCors = cors({
+  origin: (origin) => {
+    if (!origin) return null;
+    for (const allowed of CORS_ALLOWED_ORIGINS) {
+      if (typeof allowed === "string" ? allowed === origin : allowed.test(origin)) {
+        return origin;
+      }
+    }
+    return null;
+  },
+  credentials: true,
+  allowHeaders: ["Content-Type"],
+  allowMethods: ["GET", "POST", "OPTIONS"],
+  maxAge: 86400,
+});
+
+app.use("/api/auth/*", credentialedCors);
+app.use("/v1/chat/*", credentialedCors);
+
 // Session gate for `/v1/*` routes. Captures `auth.api.getSession`
 // (cookieCache fast path → secondaryStorage → D1) + the KV revocation
 // lookup at module load; the callbacks fire per request. See
@@ -149,7 +189,24 @@ app.post("/v1/ask", requireSession, async (c) => {
 // so cross-origin embeds work; per-IP rate-limited so it can't be
 // abused as a free LLM stand-in. See src/demo.ts for fixtures +
 // limiter.
-app.use("/v1/demo/*", cors({ origin: "*", allowMethods: ["POST", "OPTIONS"], maxAge: 86400 }));
+//
+// Note on CORS: must echo the request origin + `credentials: true`,
+// not `origin: "*"`. The `<nlq-data>` element always sends
+// `credentials: include` (packages/elements/src/fetch.ts:76) and
+// browsers reject `credentials: include` paired with `Origin: *`.
+// Echoing the origin is functionally "allow any" for this endpoint
+// — there's no auth, no cookies are read on the server side, and
+// the rate limiter keys off `cf-connecting-ip` not session.
+app.use(
+  "/v1/demo/*",
+  cors({
+    origin: (origin) => origin ?? null,
+    credentials: true,
+    allowHeaders: ["Content-Type", "Authorization"],
+    allowMethods: ["POST", "OPTIONS"],
+    maxAge: 86400,
+  }),
+);
 
 app.post("/v1/demo/ask", async (c) => {
   const tracer = trace.getTracer("@nlqdb/api");
