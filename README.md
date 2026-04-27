@@ -49,7 +49,7 @@ Pre-alpha. The bar below is the path from "Phase 0 backend exists" to
 
 ```
 Phase 0  Foundations         ████████████████████  10/10  ✓
-Phase 1  On-ramp              ████░░░░░░░░░░░░░░░░   2/10
+Phase 1  On-ramp              ████████████░░░░░░░░   6/10
 Phase 2  Agent + dev surfaces ░░░░░░░░░░░░░░░░░░░░   0/7
 Phase 3  Multi-engine engine  ░░░░░░░░░░░░░░░░░░░░   0/5
 Phase 4  Enterprise polish    ░░░░░░░░░░░░░░░░░░░░   0/6
@@ -74,15 +74,15 @@ Each step is 2–4 words on purpose — full spec lives in
 ### Phase 1 — On-ramp (in progress)
 
 - ✓ Marketing skeleton (Astro)
-- ✓ `<nlq-data>` v0 (demo mode)
-- ◯ Marketing copy + code panel
-- ◯ Chat surface (`app.nlqdb.com`)
-- ◯ Anonymous mode + adoption
-- ◯ Magic-link sign-in UI
-- ◯ API keys page
-- ◯ `<nlq-action>` writes
+- ✓ `<nlq-data>` v0 (live, public demo endpoint)
+- ✓ Marketing copy + tabbed code panel + /manifesto
+- ✓ Chat surface at `nlqdb.com/app`
+- ✓ Magic-link + GitHub + Google sign-in
+- ✓ DNS flip `apps/coming-soon` → `apps/web`
+- ◯ One-input chat (anon-DB created on first send) — collapses the `db_id` field; today /app asks for `db_id` separately because we don't infer/create yet
+- ◯ API keys page (`pk_live_…` for `<nlq-data>` embeds)
+- ◯ `<nlq-action>` writes (signed write-tokens)
 - ◯ Hello-world tutorial
-- ◯ DNS flip → `apps/web`
 
 ### Phase 2 — Agent + developer surfaces
 
@@ -118,17 +118,11 @@ Each step is 2–4 words on purpose — full spec lives in
 Things the code can't do for itself. Each block lists the cheapest
 trigger to unlock it.
 
-**Right now — unblock PR previews:**
-
-- ◯ Cloudflare Pages → connect git integration for `nlqdb-web` ([RUNBOOK §6](./RUNBOOK.md))
-- ◯ Cloudflare Pages → connect git integration for `nlqdb-elements` ([RUNBOOK §6](./RUNBOOK.md))
-
 **Phase 1 — before public soft launch:**
 
-- ◯ Resend domain verification (DKIM/SPF/DMARC for `nlqdb.com`)
+- ✓ Resend domain verification (DKIM/SPF/DMARC for `nlqdb.com`)
 - ◯ LogSnag account → drop `LOGSNAG_TOKEN` + `LOGSNAG_PROJECT` in `.envrc`
 - ◯ Plausible self-hosted on Fly (web analytics, free)
-- ◯ DNS flip `apps/coming-soon` → `apps/web` when web is content-complete
 
 **Phase 2 — before charging anyone:**
 

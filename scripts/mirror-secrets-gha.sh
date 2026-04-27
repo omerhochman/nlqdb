@@ -86,9 +86,18 @@ SECRETS=(
 
 say "Mirroring .envrc → GitHub Actions secrets in $REPO"
 
+# Defensive minimum: if a real secret is below this length, treat it
+# as suspicious — almost certainly truncation or .envrc corruption,
+# not a real value. Forces a stop instead of overwriting with garbage.
+# Real-world floors: shortest legit secret in our stack is the LogSnag
+# project slug (~6 chars), but we never want a 1-2 char "secret" — that
+# was the 2026-04-27 incident (`--body -` writing literal dash).
+SUSPICIOUSLY_SHORT=4
+
 set_count=0
 skip_count=0
 fail_count=0
+suspicious_count=0
 
 for name in "${SECRETS[@]}"; do
   val="${!name:-}"
@@ -97,9 +106,21 @@ for name in "${SECRETS[@]}"; do
     skip_count=$((skip_count + 1))
     continue
   fi
-  # `--body -` reads from stdin so the value never appears in argv,
-  # ps listings, or shell history.
-  if printf '%s' "$val" | gh secret set "$name" --repo "$REPO" --body - >/dev/null 2>&1; then
+  # Refuse to push a value shorter than SUSPICIOUSLY_SHORT chars.
+  # Catches: env var got truncated, .envrc file has a stub, a previous
+  # corruption hasn't been cleaned up. Loud failure beats silent
+  # downstream auth errors.
+  if [[ ${#val} -lt $SUSPICIOUSLY_SHORT ]]; then
+    fail "$name" "value is only ${#val} chars — refusing to push (looks truncated; check .envrc)"
+    suspicious_count=$((suspicious_count + 1))
+    continue
+  fi
+  # `gh secret set` reads from stdin when --body is OMITTED entirely.
+  # NEVER use `--body -` — gh CLI v2.x interprets the dash literally
+  # and stores "-" (1 char) instead of reading stdin. That bug wiped
+  # 29 GHA secrets to "-" on 2026-04-27; CI silently broke for hours.
+  # Stdin path keeps the value out of argv / ps / shell history.
+  if printf '%s' "$val" | gh secret set "$name" --repo "$REPO" >/dev/null 2>&1; then
     ok "$name (${#val} chars)"
     set_count=$((set_count + 1))
   else
@@ -108,10 +129,33 @@ for name in "${SECRETS[@]}"; do
   fi
 done
 
+# Post-push self-verify: if CLOUDFLARE_API_TOKEN was just pushed, we
+# can't read it back from GH (secrets are write-only) — but we CAN
+# verify the local value still works against the same Cloudflare API
+# that GH-Actions runs will hit. If THIS fails, GH-side is also
+# broken (same value source). Fail loudly so the operator notices
+# before the next CI run does.
+if [[ $set_count -gt 0 ]] && [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+  echo ""
+  say "Self-verify: local CLOUDFLARE_API_TOKEN against api.cloudflare.com"
+  verify_status=$(curl -s -o /dev/null -w '%{http_code}' \
+    "https://api.cloudflare.com/client/v4/user/tokens/verify" \
+    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" || echo "000")
+  if [[ "$verify_status" == "200" ]]; then
+    ok "token verified (HTTP 200) — same value is now in GH secrets"
+  else
+    fail "self-verify" "CF token returns HTTP $verify_status — fix .envrc and re-run, the GH-side push is also broken"
+    fail_count=$((fail_count + 1))
+  fi
+fi
+
 echo ""
 say "Done"
 ok "$set_count secrets mirrored"
 [[ $skip_count -gt 0 ]] && printf '  \033[2m· %d skipped (empty in .envrc — provision later)\033[0m\n' "$skip_count"
+[[ $suspicious_count -gt 0 ]] && printf '  \033[1;31m✗ %d refused (value < %d chars — looks truncated)\033[0m\n' "$suspicious_count" "$SUSPICIOUSLY_SHORT"
 [[ $fail_count -gt 0 ]] && printf '  \033[1;31m✗ %d failed — check gh auth status, repo permissions, token scope\033[0m\n' "$fail_count"
 echo ""
 echo "Verify with: gh secret list -R $REPO"
+[[ $fail_count -gt 0 || $suspicious_count -gt 0 ]] && exit 1
+exit 0

@@ -119,12 +119,20 @@ if [[ -n "${GRAFANA_CLOUD_INSTANCE_ID:-}" && -n "${GRAFANA_CLOUD_API_KEY:-}" ]];
 fi
 SECRETS+=(GRAFANA_OTLP_AUTHORIZATION)
 
+# Defensive minimum: anything shorter than this in a real-secret slot
+# is almost certainly truncation or .envrc corruption. Refuse to push
+# rather than silently overwrite a working Worker secret with garbage.
+# Mirrors the floor in mirror-secrets-gha.sh; both scripts source the
+# same .envrc and would catch the same incident class together.
+SUSPICIOUSLY_SHORT=4
+
 # Collect (name, value) pairs. Empty values get skipped, not pushed —
 # pushing an empty string would mask a real value already on the Worker.
 declare -a names
 declare -a values
 set_count=0
 skip_count=0
+suspicious_count=0
 for name in "${SECRETS[@]}"; do
   val="${!name:-}"
   if [[ -z "$val" ]]; then
@@ -132,10 +140,21 @@ for name in "${SECRETS[@]}"; do
     skip_count=$((skip_count + 1))
     continue
   fi
+  if [[ ${#val} -lt $SUSPICIOUSLY_SHORT ]]; then
+    fail "$name" "value is only ${#val} chars — refusing to push (looks truncated; check .envrc)"
+    suspicious_count=$((suspicious_count + 1))
+    continue
+  fi
   names+=("$name")
   values+=("$val")
   set_count=$((set_count + 1))
 done
+
+if [[ $suspicious_count -gt 0 ]]; then
+  echo ""
+  fail "preflight" "$suspicious_count secret(s) below ${SUSPICIOUSLY_SHORT}-char floor — aborting before any push to keep Worker state consistent"
+  exit 1
+fi
 
 # --- local mode ---------------------------------------------------------
 if [[ "$MODE" == "local" ]]; then
