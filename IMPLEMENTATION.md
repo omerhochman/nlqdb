@@ -77,9 +77,9 @@ delete every imported record** before hitting *Continue*:
 
 | Record (as imported) | Action | Why |
 | :------------------- | :----- | :-- |
-| `A @ → 13.248.243.5` / `76.223.105.230` | delete | GoDaddy parking-page IPs; Phase 0 points apex at Cloudflare Pages. |
+| `A @ → 13.248.243.5` / `76.223.105.230` | delete | GoDaddy parking-page IPs; Phase 0 points apex at a Cloudflare Worker (`nlqdb-web`). |
 | `CNAME _domainconnect → …gd.domaincontrol.com` | delete | GoDaddy Domain Connect; useless off GoDaddy DNS. |
-| `CNAME www → nlqdb.com`                  | delete | Re-add cleanly when Pages is wired. |
+| `CNAME www → nlqdb.com`                  | delete | Re-add cleanly when the Worker custom-domain is wired. |
 | `TXT _dmarc → rua=…onsecureserver.net`   | delete | GoDaddy's DMARC aggregator; we set a real SPF/DKIM/DMARC when Resend lands in Phase 1. |
 
 At GoDaddy (once, per zone): `dcc.godaddy.com` → *My Products* →
@@ -138,10 +138,14 @@ cache is still warm serve the old GoDaddy parking page; resolvers
 that have propagated to Cloudflare NS return
 `This domain is not configured` until the custom domain is
 attached and SSL provisions. Acceptable for a pre-launch domain;
-unacceptable in steady state. For the later
-`coming-soon → apps/web` swap, we reassign the Pages
-custom-domain binding between two projects — a ~30-second
-dashboard action that doesn't touch NS.
+unacceptable in steady state. For the `coming-soon → apps/web`
+swap (now happening — see RUNBOOK §6 "apps/web"), we **detach**
+`nlqdb.com` from the legacy `nlqdb-web` Pages project (or whichever
+project still claims it; `nlqdb-coming-soon` already has zero
+custom domains as of 2026-04-28) and **attach** to the new
+`nlqdb-web` Cloudflare **Worker** — a ~2-minute dashboard action
+that doesn't touch NS. The Worker is the new home for `apps/web`
+since PR #49's migration to Workers Static Assets.
 
 ### 2.1.1 Inbound email — Cloudflare Email Routing (free)
 
@@ -459,23 +463,26 @@ chain exercised with forced failover; $0 spent.
 - **Marketing site** `nlqdb.com` (static Astro). Single hero input. AEO
   basics: JSON-LD `SoftwareApplication`, `llms.txt`, `sitemap.xml`,
   AI-crawler-permissive `robots.txt`.
+> **PIVOT NOTE (2026-04-28, post-PR #49)** — items below describe the
+> Phase 1 *target* state. After PR #49, the chat surface and
+> magic-link/OAuth sign-in UI on the web are **tabled** (UX rework
+> before public exposure); `apps/web` ships a coming-soon-style
+> waitlist + 20-slide carousel instead. The chat backend
+> (`/v1/chat/messages`, `/v1/anon/adopt`, `/api/auth/*` on
+> `app.nlqdb.com`) is tested + dormant. Reactivation is a Phase 1.x
+> or Phase 2 follow-up.
+
 - **Chat surface** `app.nlqdb.com` (one Astro route + React island).
-  Streaming, three-part response, Cmd+K, Cmd+/ trace, in-place edit + re-run.
+  Streaming, three-part response, Cmd+K, Cmd+/ trace, in-place edit + re-run. **(tabled)**
 - **Anonymous-mode end-to-end** (72h, localStorage token; adopt via one
-  SQL row on sign-in).
+  SQL row on sign-in). **(API shipped — `/v1/anon/adopt`; web flow tabled with chat)**
 - **Sign-in:** magic link + GitHub OAuth (Google deferred). Cookie
-  `__Host-session` (HttpOnly / SameSite=Lax / Secure) is the Phase 1
-  *target*. Slice 10 ships a **temporary deviation**: cookies are
-  scoped to `.nlqdb.com` (Better Auth `crossSubDomainCookies`,
-  HttpOnly / SameSite=Lax / Secure, no `__Host-` prefix) so the
-  chat UI on `nlqdb.com/app` shares the session with the API on
-  `app.nlqdb.com`. The `__Host-` prefix is incompatible with a
-  `Domain=` attribute. Restoring `__Host-session` requires moving
-  the chat surface onto the same origin as the API — either by
-  bundling `apps/web` static assets into the api Worker, or by
-  promoting `nlqdb-web` to a Pages project with a route that
-  delegates `/api/auth/*` + `/v1/*` to the Worker. Both are
-  Phase-1 follow-ups; logged in `apps/api/src/auth.ts` cookie block.
+  `__Secure-session` is the Phase 1 *target* (was `__Host-session` in
+  earlier drafts; `__Host-` is incompatible with the `Domain=` attribute
+  required for cross-subdomain `nlqdb.com` ↔ `app.nlqdb.com` cookies).
+  Better Auth currently emits `__Secure-` with `crossSubDomainCookies`;
+  restoring `__Host-` requires same-origin chat (e.g. bundle `apps/web`
+  static assets into the API Worker). **(UI tabled; backend ready)**
 - **Silent refresh + seamless re-auth** on the web per §4.3 design:
   401 → refresh; refresh fail → `/sign-in?return_to=…` preserving the
   pending action.

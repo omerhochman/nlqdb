@@ -19,16 +19,16 @@ should return 21/21 green (or more, as provisioning expands).
 
 | Surface                     | URL                                 | State                          |
 | :-------------------------- | :---------------------------------- | :----------------------------- |
-| Coming-soon landing         | https://nlqdb.com                   | 200, HTTPS via Cloudflare      |
-| Privacy policy              | https://nlqdb.com/privacy           | 200                            |
-| Terms of service            | https://nlqdb.com/terms             | 200                            |
+| `nlqdb.com` apex            | https://nlqdb.com                   | 200 — see DNS flip below       |
+| Privacy policy              | https://nlqdb.com/privacy           | 200 (still served by retiring Pages snapshot) |
+| Terms of service            | https://nlqdb.com/terms             | 200 (still served by retiring Pages snapshot) |
 | `www.nlqdb.com`             | https://www.nlqdb.com               | 200 (same page)                |
 | Alt apex                    | https://nlqdb.ai                    | 301 → `https://nlqdb.com/`     |
 | Alt www                     | https://www.nlqdb.ai                | 301 → `https://nlqdb.com/…`    |
-| Pages deployment URL        | https://nlqdb-coming-soon.pages.dev | 200 (same content as nlqdb.com)|
+| `nlqdb-coming-soon` Pages   | https://nlqdb-coming-soon.pages.dev | 200 (project still exists; **0 custom domains** as of 2026-04-28) |
 | `nlqdb-api` health          | https://app.nlqdb.com/v1/health     | 200; bindings `kv` + `db` green |
-| `nlqdb-api` auth            | https://app.nlqdb.com/api/auth/*    | Better Auth — GitHub + Google verified live |
-| `nlqdb-web` (Workers Static Assets) | `nlqdb-web.<account>.workers.dev` | 200 (deployed; not yet on `nlqdb.com` — DNS flip pending per §6 "apps/web") |
+| `nlqdb-api` auth            | https://app.nlqdb.com/api/auth/*    | Better Auth — GitHub + Google + magic-link APIs ready (web UI tabled) |
+| `nlqdb-web` (Workers Static Assets) | `nlqdb-web.<account>.workers.dev` | 200 — coming-soon waitlist + carousel; **target home for `nlqdb.com` once DNS flip lands** |
 
 ---
 
@@ -42,9 +42,25 @@ re-enable via Cloudflare later).
 ### `nlqdb.com`
 
 - DNS managed by Cloudflare.
-- Custom domain attached to the Pages project `nlqdb-coming-soon`
-  (Cloudflare auto-created the DNS records on attach).
-- `www` also attached to the same Pages project.
+- **Custom-domain routing — in flux as of 2026-04-28.** PR #49
+  migrated `apps/web` from Cloudflare Pages → Cloudflare Workers
+  Static Assets, but the legacy `nlqdb-web` Pages project (now
+  superseded) still claims `nlqdb.com` via Custom Domain. The
+  legacy Pages project serves a stale pre-pivot build of `apps/web`;
+  the new `nlqdb-web` Worker (with the carousel + waitlist) is
+  reachable only on `nlqdb-web.<account>.workers.dev`.
+  - **Resolution path (one-time op):**
+    1. Cloudflare → Workers & Pages → Pages → `nlqdb-web`
+       (the legacy project) → Custom Domains → remove `nlqdb.com`
+       and `www.nlqdb.com`. Then either delete the Pages project
+       entirely (it's superseded) or leave it parked.
+    2. Cloudflare → Workers & Pages → Workers → `nlqdb-web` →
+       Settings → Domains & Routes → add `nlqdb.com` and
+       `www.nlqdb.com`. SSL cert provisions in ~3-5 min.
+    3. The `nlqdb-coming-soon` Pages project already has 0 custom
+       domains attached and can be deleted at the same time, OR
+       kept around as a holding-page fallback.
+- `www` follows the same routing as the apex.
 - **Cloudflare Email Routing ON:**
   - `hello@nlqdb.com` → founder's personal inbox (verified).
   - Catch-all: check current state at
@@ -405,16 +421,28 @@ wrangler queues info nlqdb-events
 The `nlqdb-events` queue is created/updated by
 `scripts/provision-cf-resources.sh` (idempotent).
 
-### `apps/web` (Phase 1 marketing site)
+### `apps/web` (Phase 1 coming-soon marketing site)
 
 Astro static site that builds to `apps/web/dist/`. Served by a
 Cloudflare Worker (`nlqdb-web`) via Workers Static Assets — migrated
-off Pages 2026-04-27. DNS flip from `apps/coming-soon` to this Worker
-is a future operational step (see DESIGN §3.1).
+off Pages 2026-04-27 in PR #49. After PR #49's pivot, the site is
+coming-soon-style (waitlist + 20-slide carousel) rather than the
+signed-in chat surface that an earlier draft envisioned; the chat +
+auth UI are tabled, the chat backend at `app.nlqdb.com` is intact
+and dormant.
+
+**DNS flip pending** — the new Worker is deployed and reachable on
+`nlqdb-web.<account>.workers.dev`, but `nlqdb.com` is still routed
+to the legacy `nlqdb-web` Pages project (which serves a stale
+pre-pivot build of `apps/web`). See §2 "`nlqdb.com`" for the one-
+time dashboard op that flips it.
 
 Deploys via `.github/workflows/deploy-web.yml` on merge to main when
 `apps/web/**` or `packages/elements/**` changes. SLSA L3 build
-provenance is attested via `actions/attest-build-provenance@v2`.
+provenance is attested via `actions/attest-build-provenance@v2`,
+with `continue-on-error: true` until the repo flips public or
+moves to a paid GitHub plan (the attestation API is gated on
+either; PR #56 made the step non-blocking).
 
 Manual re-deploy: workflow_dispatch on the Actions tab, or
 `bun run --cwd apps/web deploy` from a dev machine.
@@ -679,8 +707,8 @@ NLQDB_BACKUP_DIR=/path/to/private/folder scripts/backup-envrc.sh
 
 1. Check NS: `dig +short NS nlqdb.com @1.1.1.1` — must return `jeremy.ns.cloudflare.com` + `kiki.ns.cloudflare.com`. If different, GoDaddy reverted — log in → Nameservers → re-apply.
 2. Check zone status: dash.cloudflare.com → the zone → Overview → should be Active.
-3. Check Pages custom domain: dash.cloudflare.com → Workers & Pages → `nlqdb-coming-soon` → Custom domains → should show `nlqdb.com` with a green "Active" pill.
-4. If `nlqdb.com` returns "This domain is not configured": the Pages custom-domain attachment got removed — re-add via the UI (see IMPLEMENTATION §2.1, step 4).
+3. Check custom-domain attachment: dash.cloudflare.com → Workers & Pages → find which project (`nlqdb-web` Worker post-flip; legacy `nlqdb-web` Pages or `nlqdb-coming-soon` pre-flip) currently claims `nlqdb.com` — should show a green "Active" pill against exactly one project. Two projects claiming the same domain produces undefined routing.
+4. If `nlqdb.com` returns "This domain is not configured": the custom-domain attachment got removed entirely — re-attach to the `nlqdb-web` Worker via Settings → Domains & Routes.
 
 ### When the coming-soon page looks wrong
 
@@ -688,4 +716,8 @@ NLQDB_BACKUP_DIR=/path/to/private/folder scripts/backup-envrc.sh
 ./scripts/deploy-coming-soon.sh
 ```
 
-Idempotent. Pushes a fresh deployment within ~2s.
+Idempotent. Pushes a fresh deployment within ~2s. Note: as of
+2026-04-28 the `nlqdb-coming-soon` Pages project has 0 custom
+domains attached — `nlqdb.com` no longer points at it. This script
+still works to update the `*.pages.dev` URL of the project itself,
+useful if you want to keep a stand-by holding page available.

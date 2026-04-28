@@ -49,8 +49,8 @@ Pre-alpha. The bar below is the path from "Phase 0 backend exists" to
 
 ```
 Phase 0  Foundations         ████████████████████  10/10  ✓
-Phase 1  On-ramp              ████░░░░░░░░░░░░░░░░   2/10
-Phase 2  Agent + dev surfaces ░░░░░░░░░░░░░░░░░░░░   0/7
+Phase 1  On-ramp              ████████████░░░░░░░░   5/9   (chat + auth UI tabled)
+Phase 2  Agent + dev surfaces ████░░░░░░░░░░░░░░░░   1/7   (@nlqdb/sdk shipped)
 Phase 3  Multi-engine engine  ░░░░░░░░░░░░░░░░░░░░   0/5
 Phase 4  Enterprise polish    ░░░░░░░░░░░░░░░░░░░░   0/6
 ```
@@ -73,23 +73,31 @@ Each step is 2–4 words on purpose — full spec lives in
 
 ### Phase 1 — On-ramp (in progress)
 
-- ✓ Marketing skeleton (Astro)
-- ✓ `<nlq-data>` v0 (demo mode)
-- ◯ Marketing copy + code panel
-- ◯ Chat surface (`app.nlqdb.com`)
-- ◯ Anonymous mode + adoption
-- ◯ Magic-link sign-in UI
-- ◯ API keys page
-- ◯ `<nlq-action>` writes
+After PR #49's pivot, `apps/web` is a coming-soon-style page (waitlist
++ 20-slide showcase carousel) rather than a signed-in chat surface.
+The chat backend is tested and dormant; the UI is reworked before
+public exposure. Tabled items below are explicitly deferred, not "in
+progress".
+
+- ✓ Marketing skeleton (Astro on Workers Static Assets)
+- ✓ `<nlq-data>` v0 (live, public `/v1/demo/ask` endpoint)
+- ✓ Coming-soon waitlist + 20-slide capability carousel
+- ✓ `/v1/waitlist` (D1, atomic dedup, privacy-preserving 200-on-dup)
+- ✓ `apps/web` deployed via Workers Static Assets
+- ⚡ DNS flip `apps/coming-soon` → `apps/web` (in progress)
+- ◯ API keys page (`pk_live_…` for `<nlq-data>` embeds)
+- ◯ `<nlq-action>` writes (signed write-tokens)
 - ◯ Hello-world tutorial
-- ◯ DNS flip → `apps/web`
+- ⏸ Chat surface (tabled — UX rework before public; `/v1/chat/messages` API dormant)
+- ⏸ Magic-link + GitHub + Google sign-in UI (tabled with chat; `/api/auth/*` API ready)
+- ⏸ Anonymous-mode adoption flow (`/v1/anon/adopt` API shipped; web flow tied to chat)
 
 ### Phase 2 — Agent + developer surfaces
 
 - ◯ CLI `nlq` (Go binary)
 - ◯ MCP server (hosted)
 - ◯ Framework wrappers (Next, Nuxt, React, Vue)
-- ◯ `@nlqdb/sdk` (typed client)
+- ✓ `@nlqdb/sdk` (typed client; `ask` / `listChat` / `postChat` + `NlqdbApiError`)
 - ◯ CSV upload
 - ◯ Stripe live + Checkout + Portal
 - ◯ Usage metering (Lago)
