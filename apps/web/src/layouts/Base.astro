@@ -28,8 +28,8 @@ const canonicalPath = canonical ?? Astro.url.pathname;
 // (SK-AUTH-016), so a canonical built from `Astro.site` would point every
 // crawler at a redirect of the page declaring it. Keep them self-referential
 // on `app.nlqdb.com` instead (SK-WEB-023's self-referential-canonical posture).
-const canonicalBase =
-  canonicalPath === "/app" || canonicalPath.startsWith("/app/") ? APP_CANONICAL_ORIGIN : Astro.site;
+const isAppPage = canonicalPath === "/app" || canonicalPath.startsWith("/app/");
+const canonicalBase = isAppPage ? APP_CANONICAL_ORIGIN : Astro.site;
 const canonicalURL = new URL(
   canonicalPath.endsWith("/") ? canonicalPath : `${canonicalPath}/`,
   canonicalBase,
@@ -137,6 +137,18 @@ const siteEntityJsonLd =
   </head>
   <body>
     <slot />
+
+    {/* The seal — the maker's way-home link to omer.hochly.com, vendored
+        byte-for-byte from omerhochman/omer `seal/hochly-seal.js` (never edit
+        it; biome ignores it). Self-hosted, a plain link: loads and sends
+        nothing. Marketing hosts only — `/app` pages keep the bottom-right
+        corner for the Tawk widget (SK-WEB-025). */}
+    {!isAppPage && (
+      <>
+        <script is:inline src="/hochly-seal.js" defer></script>
+        <hochly-seal></hochly-seal>
+      </>
+    )}
 
     {/* SK-GTM-007 — record the first external touch (UTM / referrer /
         landing) on every page; first write wins. Bundled (not inline)

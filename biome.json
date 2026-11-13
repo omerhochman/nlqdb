@@ -32,7 +32,8 @@
       "!**/cli/dist",
       "!**/examples",
       "!**/.claude",
-      "!**/data/agentMemory.data.json"
+      "!**/data/agentMemory.data.json",
+      "!**/public/hochly-seal.js"
     ]
   },
   "formatter": {
