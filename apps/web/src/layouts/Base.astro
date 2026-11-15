@@ -141,14 +141,13 @@ const siteEntityJsonLd =
     {/* The seal — the maker's way-home link to omer.hochly.com, vendored
         byte-for-byte from omerhochman/omer `seal/hochly-seal.js` (never edit
         it; biome ignores it). Self-hosted, a plain link: loads and sends
-        nothing. Marketing hosts only — `/app` pages keep the bottom-right
-        corner for the Tawk widget (SK-WEB-025). */}
-    {!isAppPage && (
-      <>
-        <script is:inline src="/hochly-seal.js" defer></script>
-        <hochly-seal></hochly-seal>
-      </>
-    )}
+        nothing. Loaded on every page: the footer (our About — what nlqdb is,
+        who built it) always shows `<hochly-seal inline>`. The floating one
+        shows only to a visitor who came from omer.hochly.com (the file checks
+        the referrer and remembers it for the tab), and never on `/app` pages,
+        where the Tawk widget keeps the bottom-right corner (SK-WEB-025). */}
+    <script is:inline src="/hochly-seal.js" defer></script>
+    {!isAppPage && <hochly-seal></hochly-seal>}
 
     {/* SK-GTM-007 — record the first external touch (UTM / referrer /
         landing) on every page; first write wins. Bundled (not inline)
