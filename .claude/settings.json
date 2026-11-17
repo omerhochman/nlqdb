@@ -1,4 +1,5 @@
 {
+  "advisorModel": "fable",
   "permissions": {
     "allow": [
       "Bash(bun run --cwd apps/api migrate:remote:*)",
