@@ -4,7 +4,12 @@ import { FOUNDER_URL } from "../lib/site-jsonld.ts";
 ---
 
 <footer class="foot">
-  <span>&copy; nlqdb &middot; Pre-beta &middot; Built by <a href={FOUNDER_URL}>Omer Hochman</a></span>
+  {/* Our About: what nlqdb is and who built it, with the maker's seal
+      (always shown inline here; script loaded in Base.astro). */}
+  <span class="foot-maker">
+    <span>&copy; nlqdb &middot; Pre-beta &middot; Built by <a href={FOUNDER_URL}>Omer Hochman</a></span>
+    <hochly-seal inline></hochly-seal>
+  </span>
   <span>
     <a href="/manifesto/">Manifesto</a>
     &middot;

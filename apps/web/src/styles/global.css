@@ -471,6 +471,12 @@ h3 {
   gap: 16px;
 }
 
+.foot-maker {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .foot a {
   color: var(--body);
 }
